@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { z } from 'zod'
 import { saveToStorage, loadFromStorage, STORAGE_KEYS } from './storage-utils'
 import {
@@ -17,6 +17,26 @@ import {
   type Message,
   type ScheduleItems,
 } from './schemas'
+
+// Default states moved outside hooks to prevent re-creation on each render
+const DEFAULT_SURVEY_STATE: SurveyState = {
+  version: '1.0.0',
+  showSurvey: true,
+  currentQuestionIndex: 0,
+  surveyAnswers: [],
+  userPreferences: null,
+}
+
+const DEFAULT_SCHEDULE_STATE: ScheduleState = {
+  version: '1.0.0',
+  scheduleItems: DEFAULT_SCHEDULE_ITEMS,
+  nextTaskId: 20,
+}
+
+const DEFAULT_CHAT_STATE: ChatState = {
+  version: '1.0.0',
+  messages: DEFAULT_MESSAGES,
+}
 
 /**
  * Generic hook for localStorage-backed state with Zod validation
@@ -50,17 +70,9 @@ function useLocalStorageState<T>(
  * Hook for survey state persistence
  */
 export function useSurveyState() {
-  const defaultState: SurveyState = {
-    version: '1.0.0',
-    showSurvey: true,
-    currentQuestionIndex: 0,
-    surveyAnswers: [],
-    userPreferences: null,
-  }
-
   const [surveyState, setSurveyState] = useLocalStorageState(
     STORAGE_KEYS.SURVEY_STATE,
-    defaultState,
+    DEFAULT_SURVEY_STATE,
     SurveyStateSchema
   )
 
@@ -87,8 +99,8 @@ export function useSurveyState() {
   )
 
   const resetSurvey = useCallback(() => {
-    setSurveyState(defaultState)
-  }, [setSurveyState, defaultState])
+    setSurveyState(DEFAULT_SURVEY_STATE)
+  }, [setSurveyState])
 
   return {
     ...surveyState,
@@ -103,15 +115,9 @@ export function useSurveyState() {
  * Hook for schedule state persistence
  */
 export function useScheduleState() {
-  const defaultState: ScheduleState = {
-    version: '1.0.0',
-    scheduleItems: DEFAULT_SCHEDULE_ITEMS,
-    nextTaskId: 20,
-  }
-
   const [scheduleState, setScheduleState] = useLocalStorageState(
     STORAGE_KEYS.SCHEDULE_STATE,
-    defaultState,
+    DEFAULT_SCHEDULE_STATE,
     ScheduleStateSchema
   )
 
@@ -145,14 +151,9 @@ export function useScheduleState() {
  * Hook for chat state persistence
  */
 export function useChatState() {
-  const defaultState: ChatState = {
-    version: '1.0.0',
-    messages: DEFAULT_MESSAGES,
-  }
-
   const [chatState, setChatState] = useLocalStorageState(
     STORAGE_KEYS.CHAT_STATE,
-    defaultState,
+    DEFAULT_CHAT_STATE,
     ChatStateSchema
   )
 

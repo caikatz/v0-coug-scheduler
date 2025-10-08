@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
+import Image from 'next/image'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,25 +14,17 @@ import {
   BarChart3,
   AlertCircle,
   Plus,
-  Calendar,
-  Sparkles,
-  RotateCcw,
 } from 'lucide-react'
 
 // Import Zod types and persistence hooks
-import type {
-  UserPreferences,
-  TaskForm,
-  ScheduleItem,
-  Message,
-  ScheduleItems,
-} from '@/lib/schemas'
+import type { TaskForm, ScheduleItem, Message } from '@/lib/schemas'
 import {
   useSurveyState,
   useScheduleState,
   useChatState,
   useNavigationState,
 } from '@/lib/persistence-hooks'
+import { processUserPreferences } from '@/lib/schemas'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = [
@@ -91,122 +84,6 @@ const SURVEY_QUESTIONS = [
   },
 ]
 
-// Initial schedule data
-const INITIAL_SCHEDULE_ITEMS = {
-  Mon: [
-    {
-      id: 1,
-      title: 'Morning workout',
-      time: '7:00 AM - 8:00 AM',
-      priority: 'high' as const,
-      completed: false,
-    },
-    {
-      id: 2,
-      title: 'Physics homework',
-      time: '2:00 PM - 4:00 PM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-  ],
-  Tue: [
-    {
-      id: 4,
-      title: 'Lab report',
-      time: '10:00 AM - 12:00 PM',
-      priority: 'high' as const,
-      completed: false,
-    },
-    {
-      id: 5,
-      title: 'Study group',
-      time: '4:00 PM - 6:00 PM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-  ],
-  Wed: [
-    {
-      id: 6,
-      title: 'Calculus quiz',
-      time: '9:00 AM - 10:00 AM',
-      priority: 'high' as const,
-      completed: false,
-    },
-    {
-      id: 7,
-      title: 'Gym session',
-      time: '5:00 PM - 6:30 PM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-  ],
-  Thu: [
-    {
-      id: 8,
-      title: 'Project meeting',
-      time: '11:00 AM - 12:00 PM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-    {
-      id: 9,
-      title: 'Grocery shopping',
-      time: '3:00 PM - 4:00 PM',
-      priority: 'low' as const,
-      completed: false,
-    },
-  ],
-  Fri: [
-    {
-      id: 10,
-      title: 'Engineering exam',
-      time: '1:00 PM - 3:00 PM',
-      priority: 'high' as const,
-      completed: false,
-    },
-    {
-      id: 11,
-      title: 'Social event',
-      time: '7:00 PM - 9:00 PM',
-      priority: 'low' as const,
-      completed: false,
-    },
-  ],
-  Sat: [
-    {
-      id: 12,
-      title: 'Laundry',
-      time: '10:00 AM - 11:00 AM',
-      priority: 'low' as const,
-      completed: false,
-    },
-    {
-      id: 13,
-      title: 'Call family',
-      time: '2:00 PM - 3:00 PM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-  ],
-  Sun: [
-    {
-      id: 14,
-      title: 'Weekly planning',
-      time: '9:00 AM - 10:00 AM',
-      priority: 'medium' as const,
-      completed: false,
-    },
-    {
-      id: 15,
-      title: 'Meal prep',
-      time: '4:00 PM - 6:00 PM',
-      priority: 'low' as const,
-      completed: false,
-    },
-  ],
-}
-
 const WSU_COUGAR_AI = {
   id: 1,
   name: 'Butch the Cougar',
@@ -215,22 +92,12 @@ const WSU_COUGAR_AI = {
   emoji: '🐾',
 }
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 1,
-    text: "Go Cougs! I'm Butch, your WSU study companion! Ready to optimize your schedule and achieve your goals? Let me know how I can help!",
-    sender: 'ai',
-    timestamp: new Date(),
-  },
-]
-
 export default function ScheduleApp() {
   // Use persistence hooks for all state management
   const {
     showSurvey,
     currentQuestionIndex,
     surveyAnswers,
-    userPreferences,
     setSurveyState,
     updateSurveyAnswer,
     completeSurvey,
@@ -239,7 +106,7 @@ export default function ScheduleApp() {
   const { scheduleItems, nextTaskId, updateScheduleItems, incrementTaskId } =
     useScheduleState()
 
-  const { messages, addMessage, addMessages } = useChatState()
+  const { messages, addMessages } = useChatState()
 
   const {
     currentDate,
@@ -266,11 +133,6 @@ export default function ScheduleApp() {
     priority: 'medium',
   })
 
-  function getCurrentDayIndex() {
-    const today = new Date()
-    return (today.getDay() + 6) % 7
-  }
-
   function calculateSuccessPercentage() {
     const allTasks = Object.values(scheduleItems).flat()
     const completedTasks = allTasks.filter((task) => task.completed)
@@ -288,14 +150,13 @@ export default function ScheduleApp() {
     } else {
       // Survey complete, process preferences
       const newAnswers = [...surveyAnswers, answer]
-      const preferences: UserPreferences = {
-        studySchedule: newAnswers[0],
-        sleepHours: newAnswers[1],
-        scheduleView: newAnswers[2],
-        taskBreakdown: newAnswers[3],
-        reminderType: newAnswers[4],
+      try {
+        const preferences = processUserPreferences(newAnswers)
+        completeSurvey(preferences)
+      } catch (error) {
+        console.error('Invalid survey answers:', error)
+        // Handle validation error gracefully
       }
-      completeSurvey(preferences)
     }
   }
 
@@ -465,31 +326,6 @@ export default function ScheduleApp() {
     })
   }
 
-  function handleRecalculateSchedule() {
-    updateScheduleItems((prev) => {
-      const newSchedule = { ...prev }
-
-      // Boost priority of incomplete tasks
-      Object.keys(newSchedule).forEach((dayKey) => {
-        newSchedule[dayKey] = newSchedule[dayKey].map((task) => {
-          if (!task.completed) {
-            const currentPriority = task.priority
-            const newPriority =
-              currentPriority === 'low'
-                ? 'medium'
-                : currentPriority === 'medium'
-                ? 'high'
-                : 'high'
-            return { ...task, priority: newPriority }
-          }
-          return task
-        })
-      })
-
-      return newSchedule
-    })
-  }
-
   const currentScheduleItems = scheduleItems[DAYS[selectedDay]] || []
 
   const weekDates = getWeekDates(currentDateObj)
@@ -502,17 +338,19 @@ export default function ScheduleApp() {
         <Card className="w-full max-w-md p-8 text-center">
           <div className="mb-6">
             <div className="w-16 h-16 bg-red-700 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden">
-              <img
+              <Image
                 src="/images/butch-cougar.png"
                 alt="Butch the Cougar"
-                className="w-12 h-12 object-contain"
+                width={48}
+                height={48}
+                className="object-contain"
               />
             </div>
             <h1 className="text-xl font-bold text-foreground mb-2">
               Welcome, Coug!
             </h1>
             <p className="text-sm text-muted-foreground">
-              Let's personalize your AI companion
+              Let&apos;s personalize your AI companion
             </p>
           </div>
 
@@ -564,10 +402,12 @@ export default function ScheduleApp() {
           </Button>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-red-700 flex items-center justify-center overflow-hidden">
-              <img
+              <Image
                 src="/images/butch-cougar.png"
                 alt="Butch the Cougar"
-                className="w-8 h-8 object-contain"
+                width={32}
+                height={32}
+                className="object-contain"
               />
             </div>
             <div>
@@ -592,10 +432,12 @@ export default function ScheduleApp() {
               <div className="flex items-start gap-3 max-w-[80%]">
                 {message.sender === 'ai' && (
                   <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    <img
+                    <Image
                       src="/images/butch-cougar.png"
                       alt="Butch the Cougar"
-                      className="w-6 h-6 object-contain"
+                      width={24}
+                      height={24}
+                      className="object-contain"
                     />
                   </div>
                 )}
@@ -822,10 +664,12 @@ export default function ScheduleApp() {
           >
             <div className="relative">
               <div className="w-20 h-20 rounded-full bg-red-700 flex items-center justify-center shadow-xl group-hover:shadow-2xl transition-all duration-300 border-2 border-white/20 overflow-hidden">
-                <img
+                <Image
                   src="/images/butch-cougar.png"
                   alt="Butch the Cougar"
-                  className="w-16 h-16 object-contain"
+                  width={64}
+                  height={64}
+                  className="object-contain"
                 />
               </div>
               <div className="absolute -top-1 -right-1 text-xl">🐾</div>
@@ -912,7 +756,7 @@ export default function ScheduleApp() {
 
       <div className="mb-20">
         <h2 className="text-lg font-semibold text-foreground mb-3">
-          {DAYS[selectedDay]}'s Schedule
+          {DAYS[selectedDay]}&apos;s Schedule
         </h2>
         <div className="space-y-3">
           <Card className="p-3 bg-muted/30 border-muted">
@@ -921,7 +765,7 @@ export default function ScheduleApp() {
                 <div className="w-4 h-4" /> {/* Empty space for alignment */}
                 <div className="flex-1">
                   <h3 className="font-medium text-foreground text-sm">
-                    Last day to drop a course without a "W"
+                    Last day to drop a course without a &quot;W&quot;
                   </h3>
                 </div>
               </div>

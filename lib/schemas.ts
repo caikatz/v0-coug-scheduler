@@ -3,42 +3,194 @@ import { z } from 'zod'
 // Schema version for data migration
 export const SCHEMA_VERSION = '1.0.0'
 
+// Data migration functions
+export function migrateData<T>(
+  data: unknown,
+  currentVersion: string,
+  targetSchema: z.ZodSchema<T>
+): T {
+  // If versions match, validate and return
+  if (
+    typeof data === 'object' &&
+    data !== null &&
+    'version' in data &&
+    data.version === SCHEMA_VERSION
+  ) {
+    const result = targetSchema.safeParse(data)
+    if (result.success) {
+      return result.data
+    }
+  }
+
+  // Handle version migrations here
+  let migratedData = data
+
+  // Example: Migration from version 0.9.0 to 1.0.0
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !('version' in data) ||
+    (data as { version?: string }).version !== SCHEMA_VERSION
+  ) {
+    migratedData = migrateToV1_0_0(data)
+  }
+
+  // Validate the final migrated data
+  const result = targetSchema.safeParse(migratedData)
+  if (result.success) {
+    return result.data
+  }
+
+  // If all migrations fail, throw error with details
+  throw new Error(
+    `Data migration failed: ${result.error.errors
+      .map((e) => e.message)
+      .join(', ')}`
+  )
+}
+
+function migrateToV1_0_0(data: unknown): Record<string, unknown> {
+  // Handle migration from pre-versioned data to v1.0.0
+  if (!data || typeof data !== 'object') return { version: '1.0.0' }
+
+  return {
+    ...(data as Record<string, unknown>),
+    version: '1.0.0',
+    // Add any specific field migrations here
+  }
+}
+
+// Survey questions for onboarding
+export const SURVEY_QUESTIONS = [
+  {
+    id: 1,
+    question: "What's your preferred study schedule?",
+    options: [
+      'Morning (6-10 AM)',
+      'Afternoon (12-4 PM)',
+      'Evening (6-10 PM)',
+      'Late Night (10 PM-2 AM)',
+    ],
+  },
+  {
+    id: 2,
+    question: 'How many hours of sleep do you typically need?',
+    options: ['6-7 hours', '7-8 hours', '8-9 hours', '9+ hours'],
+  },
+  {
+    id: 3,
+    question: "What's your preferred schedule view?",
+    options: ['Daily Schedule', 'Weekly Schedule', 'Monthly Schedule'],
+  },
+  {
+    id: 4,
+    question: 'How do you prefer to break down large tasks?',
+    options: [
+      'Keep tasks whole',
+      'Break into 30-min chunks',
+      'Break into 1-hour chunks',
+      'Let AI decide',
+    ],
+  },
+  {
+    id: 5,
+    question: 'What type of reminders work best for you?',
+    options: [
+      'Visual notifications',
+      'Sound alerts',
+      'Gentle nudges',
+      'No reminders',
+    ],
+  },
+]
+
+export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+
 // Basic enums and constants
 export const PrioritySchema = z.enum(['high', 'medium', 'low'])
 export const MessageSenderSchema = z.enum(['user', 'ai'])
 export const ViewSchema = z.enum(['main', 'chat', 'task-editor'])
 
-// User preferences from survey
+// User preferences from survey with validation
 export const UserPreferencesSchema = z.object({
-  studySchedule: z.string(),
-  sleepHours: z.string(),
-  scheduleView: z.string(),
-  taskBreakdown: z.string(),
-  reminderType: z.string(),
+  studySchedule: z.enum([
+    'Morning (6-10 AM)',
+    'Afternoon (12-4 PM)',
+    'Evening (6-10 PM)',
+    'Late Night (10 PM-2 AM)',
+  ]),
+  sleepHours: z.enum(['6-7 hours', '7-8 hours', '8-9 hours', '9+ hours']),
+  scheduleView: z.enum([
+    'Daily Schedule',
+    'Weekly Schedule',
+    'Monthly Schedule',
+  ]),
+  taskBreakdown: z.enum([
+    'Keep tasks whole',
+    'Break into 30-min chunks',
+    'Break into 1-hour chunks',
+    'Let AI decide',
+  ]),
+  reminderType: z.enum([
+    'Visual notifications',
+    'Sound alerts',
+    'Gentle nudges',
+    'No reminders',
+  ]),
 })
 
-// Task form for creating/editing tasks
-export const TaskFormSchema = z.object({
-  name: z.string(),
-  startTime: z.string(),
-  endTime: z.string(),
-  dueDate: z.string(),
-  priority: z.string(),
-})
+// Task form for creating/editing tasks with validation
+export const TaskFormSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, 'Task name is required')
+      .max(100, 'Task name too long'),
+    startTime: z
+      .string()
+      .min(1, 'Start time is required')
+      .regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format'),
+    endTime: z
+      .string()
+      .min(1, 'End time is required')
+      .regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format'),
+    dueDate: z.string().optional(),
+    priority: PrioritySchema,
+  })
+  .refine(
+    (data) => {
+      if (data.startTime && data.endTime) {
+        return data.startTime < data.endTime
+      }
+      return true
+    },
+    {
+      message: 'End time must be after start time',
+      path: ['endTime'],
+    }
+  )
 
-// Schedule item (individual task/event)
+// Schedule item (individual task/event) with validation
 export const ScheduleItemSchema = z.object({
-  id: z.number(),
-  title: z.string(),
-  time: z.string(),
+  id: z.number().positive(),
+  title: z.string().min(1, 'Title is required').max(100, 'Title too long'),
+  time: z
+    .string()
+    .regex(
+      /^([01]?[0-9]|2[0-3]):[0-5][0-9] (AM|PM) - ([01]?[0-9]|2[0-3]):[0-5][0-9] (AM|PM)$/,
+      'Invalid time format'
+    ),
   priority: PrioritySchema,
   completed: z.boolean(),
 })
 
-// Chat message
+// Chat message with validation
 export const MessageSchema = z.object({
-  id: z.number(),
-  text: z.string(),
+  id: z.number().positive(),
+  text: z
+    .string()
+    .min(1, 'Message cannot be empty')
+    .max(1000, 'Message too long'),
   sender: MessageSenderSchema,
   timestamp: z.union([z.string().transform((str) => new Date(str)), z.date()]), // Handle both stored ISO strings and Date objects
 })
@@ -245,4 +397,133 @@ export const DEFAULT_SCHEDULE_ITEMS: ScheduleItems = {
       completed: false,
     },
   ],
+}
+
+// Utility functions with Zod validation
+export function validateTaskForm(
+  taskForm: unknown
+): { success: true; data: TaskForm } | { success: false; errors: string[] } {
+  const result = TaskFormSchema.safeParse(taskForm)
+  if (result.success) {
+    return { success: true, data: result.data }
+  }
+  return {
+    success: false,
+    errors: result.error.errors.map(
+      (err) => `${err.path.join('.')}: ${err.message}`
+    ),
+  }
+}
+
+export function validateMessage(
+  message: unknown
+): { success: true; data: Message } | { success: false; errors: string[] } {
+  const result = MessageSchema.safeParse(message)
+  if (result.success) {
+    return { success: true, data: result.data }
+  }
+  return {
+    success: false,
+    errors: result.error.errors.map(
+      (err) => `${err.path.join('.')}: ${err.message}`
+    ),
+  }
+}
+
+export function validateUserPreferences(
+  prefs: unknown
+):
+  | { success: true; data: UserPreferences }
+  | { success: false; errors: string[] } {
+  const result = UserPreferencesSchema.safeParse(prefs)
+  if (result.success) {
+    return { success: true, data: result.data }
+  }
+  return {
+    success: false,
+    errors: result.error.errors.map(
+      (err) => `${err.path.join('.')}: ${err.message}`
+    ),
+  }
+}
+
+// Utility functions
+export function getCurrentDayIndex(): number {
+  const today = new Date()
+  return (today.getDay() + 6) % 7
+}
+
+export function calculateSuccessPercentage(
+  scheduleItems: ScheduleItems
+): number {
+  const allTasks = Object.values(scheduleItems).flat()
+  const completedTasks = allTasks.filter((task) => task.completed)
+  const totalTasks = allTasks
+
+  if (totalTasks.length === 0) return 0
+  return Math.round((completedTasks.length / totalTasks.length) * 100)
+}
+
+export function processUserPreferences(
+  surveyAnswers: string[]
+): UserPreferences {
+  const preferences = {
+    studySchedule: surveyAnswers[0],
+    sleepHours: surveyAnswers[1],
+    scheduleView: surveyAnswers[2],
+    taskBreakdown: surveyAnswers[3],
+    reminderType: surveyAnswers[4],
+  }
+
+  const validation = validateUserPreferences(preferences)
+  if (validation.success) {
+    return validation.data
+  }
+
+  throw new Error(`Invalid user preferences: ${validation.errors.join(', ')}`)
+}
+
+export function createNewTask(
+  taskForm: TaskForm,
+  nextTaskId: number
+): ScheduleItem {
+  return {
+    id: nextTaskId,
+    title: taskForm.name,
+    time: `${taskForm.startTime} - ${taskForm.endTime}`,
+    priority: taskForm.priority,
+    completed: false,
+  }
+}
+
+export function updateTaskCompletion(
+  scheduleItems: ScheduleItems,
+  taskId: number,
+  dayKey: string
+): ScheduleItems {
+  return {
+    ...scheduleItems,
+    [dayKey]: (scheduleItems[dayKey] || []).map((task) =>
+      task.id === taskId ? { ...task, completed: !task.completed } : task
+    ),
+  }
+}
+
+export function createChatMessage(
+  text: string,
+  sender: MessageSender
+): Message {
+  const message = {
+    id: Date.now(),
+    text: text.trim(),
+    sender,
+    timestamp: new Date(),
+  }
+
+  const validation = validateMessage(message)
+  if (validation.success) {
+    return validation.data
+  }
+
+  throw new Error(`Invalid message: ${validation.errors.join(', ')}`)
 }

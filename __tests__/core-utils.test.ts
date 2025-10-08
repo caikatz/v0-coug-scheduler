@@ -110,7 +110,7 @@ describe('Core Utilities', () => {
         startTime: '10:00',
         endTime: '11:00',
         dueDate: '2024-10-15',
-        priority: 'high',
+        priority: 'high' as const,
       }
       const nextTaskId = 5
 
@@ -120,7 +120,7 @@ describe('Core Utilities', () => {
         id: 5,
         title: 'Study Math',
         time: '10:00 - 11:00',
-        priority: 'high',
+        priority: 'high' as const,
         completed: false,
       })
     })
@@ -179,7 +179,7 @@ describe('Core Utilities', () => {
         startTime: '10:00',
         endTime: '11:00',
         dueDate: '2024-10-15',
-        priority: 'medium',
+        priority: 'medium' as const,
       }
 
       const errors = validateTaskForm(taskForm)
@@ -192,11 +192,11 @@ describe('Core Utilities', () => {
         startTime: '10:00',
         endTime: '11:00',
         dueDate: '2024-10-15',
-        priority: 'medium',
+        priority: 'medium' as const,
       }
 
       const errors = validateTaskForm(taskForm)
-      expect(errors).toContain('Task name is required')
+      expect(errors).toContain('name: Task name is required')
     })
 
     it('should return error for missing start time', () => {
@@ -205,11 +205,11 @@ describe('Core Utilities', () => {
         startTime: '',
         endTime: '11:00',
         dueDate: '2024-10-15',
-        priority: 'medium',
+        priority: 'medium' as const,
       }
 
       const errors = validateTaskForm(taskForm)
-      expect(errors).toContain('Start time is required')
+      expect(errors).toContain('startTime: Start time is required')
     })
 
     it('should return error when end time is before start time', () => {
@@ -218,11 +218,11 @@ describe('Core Utilities', () => {
         startTime: '11:00',
         endTime: '10:00',
         dueDate: '2024-10-15',
-        priority: 'medium',
+        priority: 'medium' as const,
       }
 
       const errors = validateTaskForm(taskForm)
-      expect(errors).toContain('End time must be after start time')
+      expect(errors).toContain('endTime: End time must be after start time')
     })
 
     it('should return error for invalid priority', () => {
@@ -231,11 +231,11 @@ describe('Core Utilities', () => {
         startTime: '10:00',
         endTime: '11:00',
         dueDate: '2024-10-15',
-        priority: 'invalid',
+        priority: 'invalid' as 'high' | 'medium' | 'low', // Intentionally invalid for testing validation
       }
 
       const errors = validateTaskForm(taskForm)
-      expect(errors).toContain('Priority must be high, medium, or low')
+      expect(errors[0]).toContain('priority: Invalid enum value')
     })
   })
 

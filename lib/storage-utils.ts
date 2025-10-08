@@ -1,13 +1,5 @@
 import { z } from 'zod'
-import type {
-  SurveyState,
-  ScheduleState,
-  ChatState,
-  NavigationState,
-  UserPreferences,
-  Message,
-  ScheduleItems,
-} from './schemas'
+import { migrateData } from './schemas'
 
 export const STORAGE_KEYS = {
   USER_PREFERENCES: 'coug_scheduler_preferences',
@@ -65,17 +57,25 @@ export function loadFromStorage<T>(
 
     const parsed = JSON.parse(item)
 
-    // Validate data if schema provided
+    // Validate and migrate data if schema provided
     if (schema) {
-      const validationResult = schema.safeParse(parsed)
-      if (!validationResult.success) {
+      try {
+        const currentVersion = parsed?.version || '0.0.0'
+        const migratedData = migrateData(parsed, currentVersion, schema)
+
+        // If migration resulted in different data, save it back
+        if (JSON.stringify(migratedData) !== JSON.stringify(parsed)) {
+          saveToStorage(key, migratedData, schema)
+        }
+
+        return migratedData
+      } catch (migrationError) {
         console.warn(
-          `Stored data validation failed for ${key}, using default:`,
-          validationResult.error
+          `Data migration failed for ${key}, using default:`,
+          migrationError
         )
         return defaultValue
       }
-      return validationResult.data
     }
 
     return parsed as T
