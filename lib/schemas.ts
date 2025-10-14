@@ -277,7 +277,7 @@ export type View = z.infer<typeof ViewSchema>
 // Default values
 export const DEFAULT_MESSAGES: Message[] = [
   {
-    id: 1,
+    id: new Date().getMilliseconds(),
     text: "Go Cougs! I'm Butch, your WSU study companion! Ready to optimize your schedule and achieve your goals? Let me know how I can help!",
     sender: 'ai',
     timestamp: new Date(),
@@ -285,118 +285,13 @@ export const DEFAULT_MESSAGES: Message[] = [
 ]
 
 export const DEFAULT_SCHEDULE_ITEMS: ScheduleItems = {
-  Mon: [
-    {
-      id: 1,
-      title: 'Morning workout',
-      time: '7:00 AM - 8:00 AM',
-      priority: 'high',
-      completed: false,
-    },
-    {
-      id: 2,
-      title: 'Physics homework',
-      time: '2:00 PM - 4:00 PM',
-      priority: 'medium',
-      completed: false,
-    },
-  ],
-  Tue: [
-    {
-      id: 4,
-      title: 'Lab report',
-      time: '10:00 AM - 12:00 PM',
-      priority: 'high',
-      completed: false,
-    },
-    {
-      id: 5,
-      title: 'Study group',
-      time: '4:00 PM - 6:00 PM',
-      priority: 'medium',
-      completed: false,
-    },
-  ],
-  Wed: [
-    {
-      id: 6,
-      title: 'Calculus quiz',
-      time: '9:00 AM - 10:00 AM',
-      priority: 'high',
-      completed: false,
-    },
-    {
-      id: 7,
-      title: 'Gym session',
-      time: '5:00 PM - 6:30 PM',
-      priority: 'medium',
-      completed: false,
-    },
-  ],
-  Thu: [
-    {
-      id: 8,
-      title: 'Project meeting',
-      time: '11:00 AM - 12:00 PM',
-      priority: 'medium',
-      completed: false,
-    },
-    {
-      id: 9,
-      title: 'Grocery shopping',
-      time: '3:00 PM - 4:00 PM',
-      priority: 'low',
-      completed: false,
-    },
-  ],
-  Fri: [
-    {
-      id: 10,
-      title: 'Engineering exam',
-      time: '1:00 PM - 3:00 PM',
-      priority: 'high',
-      completed: false,
-    },
-    {
-      id: 11,
-      title: 'Social event',
-      time: '7:00 PM - 9:00 PM',
-      priority: 'low',
-      completed: false,
-    },
-  ],
-  Sat: [
-    {
-      id: 12,
-      title: 'Laundry',
-      time: '10:00 AM - 11:00 AM',
-      priority: 'low',
-      completed: false,
-    },
-    {
-      id: 13,
-      title: 'Call family',
-      time: '2:00 PM - 3:00 PM',
-      priority: 'medium',
-      completed: false,
-    },
-  ],
-  Sun: [
-    {
-      id: 14,
-      title: 'Weekly planning',
-      time: '9:00 AM - 10:00 AM',
-      priority: 'medium',
-      completed: false,
-    },
-    {
-      id: 15,
-      title: 'Meal prep',
-      time: '4:00 PM - 6:00 PM',
-      priority: 'low',
-      completed: false,
-    },
-  ],
+  Mon: [],
+  Tue: [],
+  Wed: [],
+  Thu: [],
+  Fri: [],
+  Sat: [],
+  Sun: [],
 }
 
 // Utility functions with Zod validation

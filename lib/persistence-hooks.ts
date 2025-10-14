@@ -30,7 +30,7 @@ const DEFAULT_SURVEY_STATE: SurveyState = {
 const DEFAULT_SCHEDULE_STATE: ScheduleState = {
   version: '1.0.0',
   scheduleItems: DEFAULT_SCHEDULE_ITEMS,
-  nextTaskId: 20,
+  nextTaskId: 1,
 }
 
 const DEFAULT_CHAT_STATE: ChatState = {

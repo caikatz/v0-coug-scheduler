@@ -815,19 +815,6 @@ export default function ScheduleApp() {
           {DAYS[selectedDay]}&apos;s Schedule
         </h2>
         <div className="space-y-3">
-          <Card className="p-3 bg-muted/30 border-muted">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 flex-1">
-                <div className="w-4 h-4" /> {/* Empty space for alignment */}
-                <div className="flex-1">
-                  <h3 className="font-medium text-foreground text-sm">
-                    Last day to drop a course without a &quot;W&quot;
-                  </h3>
-                </div>
-              </div>
-            </div>
-          </Card>
-
           {currentScheduleItems.map((item) => (
             <Card
               key={item.id}
