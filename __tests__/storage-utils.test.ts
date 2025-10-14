@@ -153,13 +153,13 @@ describe('Storage Utils', () => {
     it('should generate a new user ID on first call', () => {
       const mockUUID = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
       const cryptoMock = {
-        randomUUID: jest.fn().mockReturnValue(mockUUID)
+        randomUUID: jest.fn().mockReturnValue(mockUUID),
       }
-      
+
       // Mock crypto object
       Object.defineProperty(global, 'crypto', {
         value: cryptoMock,
-        writable: true
+        writable: true,
       })
 
       const userId = getUserId()
@@ -179,7 +179,9 @@ describe('Storage Utils', () => {
       const userId = getUserId()
 
       expect(userId).toBe(existingId)
-      expect(localStorageMock.getItem).toHaveBeenCalledWith(STORAGE_KEYS.USER_ID)
+      expect(localStorageMock.getItem).toHaveBeenCalledWith(
+        STORAGE_KEYS.USER_ID
+      )
       expect(localStorageMock.setItem).not.toHaveBeenCalled()
     })
 
@@ -187,7 +189,7 @@ describe('Storage Utils', () => {
       // Remove crypto from global
       Object.defineProperty(global, 'crypto', {
         value: undefined,
-        writable: true
+        writable: true,
       })
 
       expect(() => getUserId()).toThrow()
@@ -199,12 +201,12 @@ describe('Storage Utils', () => {
       })
 
       const cryptoMock = {
-        randomUUID: jest.fn().mockReturnValue('test-uuid')
+        randomUUID: jest.fn().mockReturnValue('test-uuid'),
       }
-      
+
       Object.defineProperty(global, 'crypto', {
         value: cryptoMock,
-        writable: true
+        writable: true,
       })
 
       expect(() => getUserId()).toThrow('localStorage error')
