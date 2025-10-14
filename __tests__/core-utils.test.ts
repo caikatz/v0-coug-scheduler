@@ -104,7 +104,7 @@ describe('Core Utilities', () => {
   })
 
   describe('createNewTask', () => {
-    it('should create a new task from form data', () => {
+    it('should create a new task from form data with times', () => {
       const taskForm = {
         name: 'Study Math',
         startTime: '10:00',
@@ -123,6 +123,48 @@ describe('Core Utilities', () => {
         priority: 'high' as const,
         completed: false,
       })
+    })
+
+    it('should create a new task without times when not provided', () => {
+      const taskForm = {
+        name: 'General Task',
+        startTime: '',
+        endTime: '',
+        dueDate: '2024-10-15',
+        priority: 'medium' as const,
+      }
+      const nextTaskId = 6
+
+      const result = createNewTask(taskForm, nextTaskId)
+
+      expect(result).toEqual({
+        id: 6,
+        title: 'General Task',
+        priority: 'medium' as const,
+        completed: false,
+      })
+      expect(result.time).toBeUndefined()
+    })
+
+    it('should create a new task without times when only one time is provided', () => {
+      const taskForm = {
+        name: 'Partial Task',
+        startTime: '10:00',
+        endTime: '',
+        dueDate: '2024-10-15',
+        priority: 'low' as const,
+      }
+      const nextTaskId = 7
+
+      const result = createNewTask(taskForm, nextTaskId)
+
+      expect(result).toEqual({
+        id: 7,
+        title: 'Partial Task',
+        priority: 'low' as const,
+        completed: false,
+      })
+      expect(result.time).toBeUndefined()
     })
   })
 
@@ -199,7 +241,7 @@ describe('Core Utilities', () => {
       expect(errors).toContain('name: Task name is required')
     })
 
-    it('should return error for missing start time', () => {
+    it('should allow missing start time (now optional)', () => {
       const taskForm = {
         name: 'Task',
         startTime: '',
@@ -209,7 +251,7 @@ describe('Core Utilities', () => {
       }
 
       const errors = validateTaskForm(taskForm)
-      expect(errors).toContain('startTime: Start time is required')
+      expect(errors).toHaveLength(0)
     })
 
     it('should return error when end time is before start time', () => {

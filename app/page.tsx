@@ -26,7 +26,11 @@ import {
   useChatState,
   useNavigationState,
 } from '@/lib/persistence-hooks'
-import { processUserPreferences, formatTime24To12 } from '@/lib/schemas'
+import {
+  processUserPreferences,
+  formatTime24To12,
+  convertTo24Hour,
+} from '@/lib/schemas'
 import { sendChatToWebhook } from '@/lib/webhook-service'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -293,10 +297,23 @@ export default function ScheduleApp() {
 
   function handleTaskClick(task: ScheduleItem) {
     setEditingTask(task)
+
+    // Parse time if it exists
+    let startTime = ''
+    let endTime = ''
+    if (task.time) {
+      const timeParts = task.time.split(' - ')
+      if (timeParts.length === 2) {
+        // Convert from 12-hour format to 24-hour format for the time input
+        startTime = convertTo24Hour(timeParts[0])
+        endTime = convertTo24Hour(timeParts[1])
+      }
+    }
+
     setTaskForm({
       name: task.title,
-      startTime: task.time.split(' - ')[0],
-      endTime: task.time.split(' - ')[1],
+      startTime,
+      endTime,
       dueDate: '',
       priority: task.priority,
     })
@@ -305,37 +322,48 @@ export default function ScheduleApp() {
 
   function handleSaveTask() {
     const dayKey = DAYS[selectedDay]
+    const hasTimeRange = taskForm.startTime && taskForm.endTime
 
     if (editingTask) {
       // Update existing task
-      const startTime12 = formatTime24To12(taskForm.startTime)
-      const endTime12 = formatTime24To12(taskForm.endTime)
-
       updateScheduleItems((items) => ({
         ...items,
         [dayKey]:
-          items[dayKey]?.map((task) =>
-            task.id === editingTask.id
-              ? {
-                  ...task,
-                  title: taskForm.name,
-                  time: `${startTime12} - ${endTime12}`,
-                  priority: taskForm.priority as 'high' | 'medium' | 'low',
-                }
-              : task
-          ) || [],
+          items[dayKey]?.map((task) => {
+            if (task.id === editingTask.id) {
+              const updatedTask: ScheduleItem = {
+                ...task,
+                title: taskForm.name,
+                priority: taskForm.priority as 'high' | 'medium' | 'low',
+              }
+
+              if (hasTimeRange) {
+                const startTime12 = formatTime24To12(taskForm.startTime!)
+                const endTime12 = formatTime24To12(taskForm.endTime!)
+                updatedTask.time = `${startTime12} - ${endTime12}`
+              } else {
+                // Remove time field if no times provided
+                delete updatedTask.time
+              }
+
+              return updatedTask
+            }
+            return task
+          }) || [],
       }))
     } else {
       // Add new task
-      const startTime12 = formatTime24To12(taskForm.startTime)
-      const endTime12 = formatTime24To12(taskForm.endTime)
-
       const newTask: ScheduleItem = {
         id: nextTaskId,
         title: taskForm.name,
-        time: `${startTime12} - ${endTime12}`,
         priority: taskForm.priority as 'high' | 'medium' | 'low',
         completed: false,
+      }
+
+      if (hasTimeRange) {
+        const startTime12 = formatTime24To12(taskForm.startTime!)
+        const endTime12 = formatTime24To12(taskForm.endTime!)
+        newTask.time = `${startTime12} - ${endTime12}`
       }
 
       updateScheduleItems((items) => ({
@@ -623,11 +651,11 @@ export default function ScheduleApp() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
-                Start Time
+                Start Time (Optional)
               </label>
               <input
                 type="time"
-                value={taskForm.startTime}
+                value={taskForm.startTime || ''}
                 onChange={(e) =>
                   setTaskForm((prev) => ({
                     ...prev,
@@ -639,11 +667,11 @@ export default function ScheduleApp() {
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
-                End Time
+                End Time (Optional)
               </label>
               <input
                 type="time"
-                value={taskForm.endTime}
+                value={taskForm.endTime || ''}
                 onChange={(e) =>
                   setTaskForm((prev) => ({ ...prev, endTime: e.target.value }))
                 }
@@ -878,7 +906,7 @@ export default function ScheduleApp() {
                         {item.title}
                       </h3>
                       <p className="text-sm text-muted-foreground">
-                        {item.time}
+                        {item.time || 'No specific time'}
                       </p>
                     </div>
                   </div>
@@ -956,11 +984,23 @@ export default function ScheduleApp() {
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/50 p-4">
+      <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/50 p-4 z-10">
         <div className="max-w-md mx-auto">
           <Button
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-full py-3 font-semibold shadow-lg"
-            onClick={() => setShowTaskEditor(true)}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setEditingTask(null)
+              setTaskForm({
+                name: '',
+                startTime: '',
+                endTime: '',
+                dueDate: '',
+                priority: 'medium',
+              })
+              setShowTaskEditor(true)
+            }}
           >
             <Plus className="w-5 h-5 mr-2" />
             Add Task to Schedule

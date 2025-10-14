@@ -148,12 +148,18 @@ export const TaskFormSchema = z
       .max(100, 'Task name too long'),
     startTime: z
       .string()
-      .min(1, 'Start time is required')
-      .regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format'),
+      .optional()
+      .refine(
+        (time) => !time || /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time),
+        'Invalid time format'
+      ),
     endTime: z
       .string()
-      .min(1, 'End time is required')
-      .regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format'),
+      .optional()
+      .refine(
+        (time) => !time || /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time),
+        'Invalid time format'
+      ),
     dueDate: z.string().optional(),
     priority: PrioritySchema,
   })
@@ -179,7 +185,8 @@ export const ScheduleItemSchema = z.object({
     .regex(
       /^([01]?[0-9]|2[0-3]):[0-5][0-9] (AM|PM) - ([01]?[0-9]|2[0-3]):[0-5][0-9] (AM|PM)$/,
       'Invalid time format'
-    ),
+    )
+    .optional(),
   priority: PrioritySchema,
   completed: z.boolean(),
 })
@@ -386,20 +393,43 @@ export function formatTime24To12(time24: string): string {
   return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`
 }
 
+// Utility function to convert 12-hour format with AM/PM to 24-hour format
+export function convertTo24Hour(time12: string): string {
+  const match = time12.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (!match) return ''
+
+  const [, hours, minutes, period] = match
+  let hour24 = parseInt(hours, 10)
+
+  if (period.toUpperCase() === 'AM' && hour24 === 12) {
+    hour24 = 0
+  } else if (period.toUpperCase() === 'PM' && hour24 !== 12) {
+    hour24 += 12
+  }
+
+  return `${hour24.toString().padStart(2, '0')}:${minutes}`
+}
+
 export function createNewTask(
   taskForm: TaskForm,
   nextTaskId: number
 ): ScheduleItem {
-  const startTime12 = formatTime24To12(taskForm.startTime)
-  const endTime12 = formatTime24To12(taskForm.endTime)
+  const hasTimeRange = taskForm.startTime && taskForm.endTime
 
-  return {
+  const scheduleItem: ScheduleItem = {
     id: nextTaskId,
     title: taskForm.name,
-    time: `${startTime12} - ${endTime12}`,
     priority: taskForm.priority,
     completed: false,
   }
+
+  if (hasTimeRange) {
+    const startTime12 = formatTime24To12(taskForm.startTime!)
+    const endTime12 = formatTime24To12(taskForm.endTime!)
+    scheduleItem.time = `${startTime12} - ${endTime12}`
+  }
+
+  return scheduleItem
 }
 
 export function updateTaskCompletion(
