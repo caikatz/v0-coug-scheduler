@@ -25,6 +25,7 @@ import {
   useNavigationState,
 } from '@/lib/persistence-hooks'
 import { processUserPreferences } from '@/lib/schemas'
+import { sendChatToWebhook } from '@/lib/webhook-service'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = [
@@ -98,6 +99,7 @@ export default function ScheduleApp() {
     showSurvey,
     currentQuestionIndex,
     surveyAnswers,
+    userPreferences,
     setSurveyState,
     updateSurveyAnswer,
     completeSurvey,
@@ -106,7 +108,7 @@ export default function ScheduleApp() {
   const { scheduleItems, nextTaskId, updateScheduleItems, incrementTaskId } =
     useScheduleState()
 
-  const { messages, addMessages } = useChatState()
+  const { messages, addMessages, setMessages } = useChatState()
 
   const {
     currentDate,
@@ -125,6 +127,7 @@ export default function ScheduleApp() {
   const [inputText, setInputText] = useState('')
   const [editingTask, setEditingTask] = useState<ScheduleItem | null>(null)
   const [showTaskEditor, setShowTaskEditor] = useState(false)
+  const [isAiThinking, setIsAiThinking] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>({
     name: '',
     startTime: '',
@@ -190,37 +193,56 @@ export default function ScheduleApp() {
     setCurrentView('main')
   }
 
-  function handleSendMessage() {
-    if (!inputText.trim()) return
+  async function handleSendMessage() {
+    if (!inputText.trim() || isAiThinking) return
 
+    const currentMessage = inputText.trim()
     const userMessage: Message = {
       id: Date.now(),
-      text: inputText.trim(),
+      text: currentMessage,
       sender: 'user',
       timestamp: new Date(),
     }
 
-    const cougarResponses = [
-      "That's the Cougar spirit! Let me help you optimize that in your schedule.",
-      'Go Cougs! I can suggest the perfect time slot for that task.',
-      'Crimson and Gray pride! Want me to break that down into manageable chunks?',
-      "Way to go, Coug! I'll factor that into your success predictions.",
-      "That's what I call Cougar courage! Let's make your schedule work for you.",
-      'Pullman proud! Your dedication is showing in your completion rates.',
-    ]
-
-    const randomResponse =
-      cougarResponses[Math.floor(Math.random() * cougarResponses.length)]
-
-    const aiMessage: Message = {
-      id: Date.now() + 1,
-      text: randomResponse,
-      sender: 'ai',
-      timestamp: new Date(),
-    }
-
-    addMessages([userMessage, aiMessage])
+    // Add user message immediately and clear input
+    addMessages([userMessage])
     setInputText('')
+    setIsAiThinking(true)
+
+    try {
+      // Send to webhook with all context
+      const allMessages = [...messages, userMessage].map((msg) => ({
+        ...msg,
+        timestamp:
+          msg.timestamp instanceof Date
+            ? msg.timestamp
+            : new Date(msg.timestamp),
+      }))
+
+      const updatedMessages = await sendChatToWebhook(
+        allMessages,
+        userPreferences,
+        scheduleItems,
+        currentMessage
+      )
+
+      // Replace the entire messages array with the response from the webhook
+      setMessages(updatedMessages)
+    } catch (error) {
+      console.error('Failed to get AI response:', error)
+
+      // Fallback message if webhook completely fails
+      const fallbackMessage: Message = {
+        id: Date.now() + 1,
+        text: "Go Cougs! I'm having some technical difficulties, but I'm still here to help you succeed!",
+        sender: 'ai',
+        timestamp: new Date(),
+      }
+
+      addMessages([fallbackMessage])
+    } finally {
+      setIsAiThinking(false)
+    }
   }
 
   function handleKeyPress(e: React.KeyboardEvent) {
@@ -467,6 +489,35 @@ export default function ScheduleApp() {
               </div>
             </div>
           ))}
+
+          {/* Loading indicator when AI is thinking */}
+          {isAiThinking && (
+            <div className="flex justify-start">
+              <div className="flex items-start gap-3 max-w-[80%]">
+                <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <Image
+                    src="/images/butch-cougar.png"
+                    alt="Butch the Cougar"
+                    width={24}
+                    height={24}
+                    className="object-contain"
+                  />
+                </div>
+                <div className="rounded-2xl px-4 py-3 bg-muted text-foreground">
+                  <div className="flex items-center gap-2">
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                      <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                      <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      Butch is thinking...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t border-border/50 bg-background">
@@ -476,13 +527,18 @@ export default function ScheduleApp() {
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Message Butch the Cougar..."
-                className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder={
+                  isAiThinking
+                    ? 'Butch is thinking...'
+                    : 'Message Butch the Cougar...'
+                }
+                disabled={isAiThinking}
+                className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 rows={1}
               />
               <Button
                 onClick={handleSendMessage}
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() || isAiThinking}
                 size="sm"
                 className="absolute right-2 bottom-2 h-8 w-8 p-0 rounded-full"
               >

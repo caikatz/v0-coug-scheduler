@@ -184,12 +184,23 @@ export function useChatState() {
     }))
   }, [setChatState])
 
+  const setMessages = useCallback(
+    (messages: Message[]) => {
+      setChatState((prev) => ({
+        ...prev,
+        messages,
+      }))
+    },
+    [setChatState]
+  )
+
   return {
     ...chatState,
     setChatState,
     addMessage,
     addMessages,
     clearMessages,
+    setMessages,
   }
 }
 
