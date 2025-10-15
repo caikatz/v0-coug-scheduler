@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Image from 'next/image'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
 import {
   ChevronLeft,
   ChevronRight,
@@ -52,41 +53,83 @@ const MONTHS = [
 const SURVEY_QUESTIONS = [
   {
     id: 1,
-    question: "What's your preferred study schedule?",
-    options: [
-      'Morning (6-10 AM)',
-      'Afternoon (12-4 PM)',
-      'Evening (6-10 PM)',
-      'Late Night (10 PM-2 AM)',
-    ],
+    question: 'What are your most productive study hours?',
+    type: 'slider' as const,
+    min: 6, // 6am
+    max: 24, // 12am (midnight)
+    step: 1,
+    defaultValue: [9, 17], // 9am to 5pm
+    labels: ['6am', '9am', '12pm', '3pm', '6pm', '9pm', '12am'],
   },
   {
     id: 2,
-    question: 'How many hours of sleep do you typically need?',
-    options: ['6-7 hours', '7-8 hours', '8-9 hours', '9+ hours'],
+    question: 'When do you prefer to be asleep?',
+    type: 'slider' as const,
+    min: 0, // 9pm (represented as 0 for slider)
+    max: 12, // 9am (represented as 12 for slider, actual hours: 9pm-9am)
+    step: 1,
+    defaultValue: [2, 10], // 11pm to 7am (2 hours after 9pm, 10 hours after 9pm)
+    labels: ['9pm', '12am', '3am', '6am', '9am'],
+    validation: 'min-7-hours' as const,
   },
   {
     id: 3,
-    question: "What's your preferred schedule view?",
-    options: ['Daily Schedule', 'Weekly Schedule', 'Monthly Schedule'],
+    question: 'Is your current sleep schedule working for you?',
+    type: 'multiple-choice' as const,
+    options: [
+      'No, I need to develop a new sleep routine',
+      'Somewhat, but I need to adjust it for college',
+      'Yes, but it can be improved',
+      'Yes, it needs no improvements',
+    ],
+    requiresFollowUp: [0, 1, 2], // Indices that require follow-up
   },
   {
     id: 4,
-    question: 'How do you prefer to break down large tasks?',
+    question: 'What is your preferred planner view?',
+    type: 'multiple-choice' as const,
     options: [
-      'Keep tasks whole',
-      'Break into 30-min chunks',
-      'Break into 1-hour chunks',
+      'Daily to-do list',
+      'Weekly to-do list',
+      'Bulleted monthly overview',
+      'Daily schedule',
+      'Weekly schedule',
+      'Monthly calendar',
     ],
+    showPreview: true,
   },
   {
     id: 5,
+    question: 'How do you prefer to break down large tasks?',
+    type: 'multiple-choice' as const,
+    options: [
+      'Keep tasks whole',
+      'Break into study chunks >1hr',
+      'Break into study chunks <1hr',
+      'Let AI decide',
+    ],
+  },
+  {
+    id: 6,
+    question: 'Are your current study habits working for you?',
+    type: 'multiple-choice' as const,
+    options: [
+      'No, I need to develop a new routine',
+      'Somewhat, but I need to adjust them for college',
+      'Yes, but they can be improved',
+      'Yes, they need no improvements',
+    ],
+    requiresFollowUp: [0, 1, 2], // Indices that require follow-up
+  },
+  {
+    id: 7,
     question: 'What type of reminders work best for you?',
+    type: 'multiple-choice' as const,
     options: [
       'Visual notifications',
       'Sound alerts',
-      'Gentle nudges',
-      'No reminders',
+      'Email summaries',
+      'No notifications',
     ],
   },
 ]
@@ -143,6 +186,13 @@ export default function ScheduleApp() {
     priority: 'medium',
   })
 
+  // Survey-specific UI state
+  const [sliderValue1, setSliderValue1] = useState<number[]>([9, 17])
+  const [sliderValue2, setSliderValue2] = useState<number[]>([2, 10])
+  const [followUpText, setFollowUpText] = useState('')
+  const [showFollowUp, setShowFollowUp] = useState(false)
+  const [pendingAnswer, setPendingAnswer] = useState<string>('')
+
   function calculateSuccessPercentage() {
     const allTasks = Object.values(scheduleItems).flat()
     const completedTasks = allTasks.filter((task) => task.completed)
@@ -154,12 +204,63 @@ export default function ScheduleApp() {
 
   const successPercentage = calculateSuccessPercentage()
 
-  function handleSurveyAnswer(answer: string) {
+  // Helper to convert slider value to hour string
+  function sliderToHourString(value: number, questionId: number): string {
+    if (questionId === 1) {
+      // Q1: 6am-12am
+      return `${value}:00`
+    } else {
+      // Q2: 9pm-9am (0-12 maps to 21-33)
+      const actualHour = (21 + value) % 24
+      return `${actualHour}:00`
+    }
+  }
+
+  function handleSurveyAnswer(answer: string | number[]) {
+    const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
+
+    // Check if this question requires follow-up
+    if (
+      currentQuestion.type === 'multiple-choice' &&
+      currentQuestion.requiresFollowUp
+    ) {
+      const selectedIndex =
+        currentQuestion.options?.indexOf(answer as string) ?? -1
+      if (currentQuestion.requiresFollowUp.includes(selectedIndex)) {
+        setPendingAnswer(answer as string)
+        setShowFollowUp(true)
+        return // Wait for follow-up input
+      }
+    }
+
+    // Format answer based on type
+    let formattedAnswer: string
+    if (Array.isArray(answer)) {
+      // Slider answer
+      if (currentQuestionIndex === 0) {
+        formattedAnswer = `${answer[0]}:00-${answer[1]}:00`
+      } else {
+        formattedAnswer = `${sliderToHourString(
+          answer[0],
+          2
+        )}-${sliderToHourString(answer[1], 2)}`
+      }
+    } else {
+      formattedAnswer = answer
+      if (showFollowUp && followUpText.trim()) {
+        formattedAnswer += ` | Notes: ${followUpText.trim()}`
+      }
+    }
+
+    // Move to next question or complete survey
     if (currentQuestionIndex < SURVEY_QUESTIONS.length - 1) {
-      updateSurveyAnswer(answer)
+      updateSurveyAnswer(formattedAnswer)
+      setShowFollowUp(false)
+      setFollowUpText('')
+      setPendingAnswer('')
     } else {
       // Survey complete, process preferences
-      const newAnswers = [...surveyAnswers, answer]
+      const newAnswers = [...surveyAnswers, formattedAnswer]
       try {
         const preferences = processUserPreferences(newAnswers)
         completeSurvey(preferences)
@@ -168,6 +269,10 @@ export default function ScheduleApp() {
         // Handle validation error gracefully
       }
     }
+  }
+
+  function handleFollowUpSubmit() {
+    handleSurveyAnswer(pendingAnswer)
   }
 
   function getWeekDates(date: Date) {
@@ -429,18 +534,107 @@ export default function ScheduleApp() {
               {currentQuestion.question}
             </h2>
 
-            <div className="space-y-3">
-              {currentQuestion.options.map((option, index) => (
+            {/* Render based on question type */}
+            {currentQuestion.type === 'slider' ? (
+              <div className="space-y-4 px-2">
+                <Slider
+                  value={
+                    currentQuestionIndex === 0 ? sliderValue1 : sliderValue2
+                  }
+                  onValueChange={(value) => {
+                    if (currentQuestionIndex === 0) {
+                      setSliderValue1(value)
+                    } else {
+                      setSliderValue2(value)
+                    }
+                  }}
+                  min={currentQuestion.min}
+                  max={currentQuestion.max}
+                  step={currentQuestion.step || 1}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  {currentQuestion.labels?.map((label, idx) => (
+                    <span key={idx}>{label}</span>
+                  ))}
+                </div>
+                <div className="flex justify-between text-sm font-medium">
+                  <span>
+                    Start:{' '}
+                    {currentQuestionIndex === 0
+                      ? `${sliderValue1[0]}:00`
+                      : sliderToHourString(sliderValue2[0], 2)}
+                  </span>
+                  <span>
+                    End:{' '}
+                    {currentQuestionIndex === 0
+                      ? `${sliderValue1[1]}:00`
+                      : sliderToHourString(sliderValue2[1], 2)}
+                  </span>
+                </div>
+
+                {/* Validation message for Q2 */}
+                {currentQuestionIndex === 1 &&
+                  currentQuestion.validation === 'min-7-hours' &&
+                  sliderValue2[1] - sliderValue2[0] < 7 && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      Consider getting at least 7 hours of sleep
+                    </p>
+                  )}
+
                 <Button
-                  key={index}
-                  variant="outline"
-                  className="w-full text-left justify-start h-auto p-4 hover:bg-primary/10 hover:border-primary transition-all bg-transparent"
-                  onClick={() => handleSurveyAnswer(option)}
+                  onClick={() =>
+                    handleSurveyAnswer(
+                      currentQuestionIndex === 0 ? sliderValue1 : sliderValue2
+                    )
+                  }
+                  className="w-full mt-4"
                 >
-                  {option}
+                  Continue
                 </Button>
-              ))}
-            </div>
+              </div>
+            ) : showFollowUp ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground mb-2">
+                  Please tell us more about your situation:
+                </p>
+                <textarea
+                  value={followUpText}
+                  onChange={(e) => setFollowUpText(e.target.value)}
+                  className="w-full min-h-[100px] p-3 rounded-md border border-input bg-background text-foreground resize-none"
+                  placeholder="Share any additional details..."
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowFollowUp(false)
+                      setFollowUpText('')
+                    }}
+                    className="flex-1"
+                  >
+                    Skip
+                  </Button>
+                  <Button onClick={handleFollowUpSubmit} className="flex-1">
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {currentQuestion.options?.map((option, index) => (
+                  <Button
+                    key={index}
+                    variant="outline"
+                    className="w-full text-left justify-start h-auto p-4 hover:bg-primary/10 hover:border-primary transition-all bg-transparent"
+                    onClick={() => handleSurveyAnswer(option)}
+                  >
+                    {option}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
       </div>

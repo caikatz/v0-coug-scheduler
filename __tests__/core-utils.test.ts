@@ -85,21 +85,43 @@ describe('Core Utilities', () => {
   describe('processUserPreferences', () => {
     it('should process survey answers into preferences object', () => {
       const surveyAnswers = [
-        'Morning (6-10 AM)',
-        '7-8 hours',
-        'Weekly Schedule',
-        'Break into 1-hour chunks',
-        'Visual notifications',
+        '9:00-17:00', // productive hours
+        '23:00-7:00', // sleep hours
+        'Yes, but it can be improved', // sleep schedule working
+        'Daily schedule', // planner view
+        'Break into study chunks <1hr', // task breakdown
+        'Yes, but they can be improved', // study habits working
+        'Visual notifications', // reminder type
       ]
       const result = processUserPreferences(surveyAnswers)
 
       expect(result).toEqual({
-        studySchedule: 'Morning (6-10 AM)',
-        sleepHours: '7-8 hours',
-        scheduleView: 'Weekly Schedule',
-        taskBreakdown: 'Break into 1-hour chunks',
+        productiveHours: '9:00-17:00',
+        sleepHours: '23:00-7:00',
+        sleepScheduleWorking: 'Yes, but it can be improved',
+        sleepScheduleNotes: undefined,
+        plannerView: 'Daily schedule',
+        taskBreakdown: 'Break into study chunks <1hr',
+        studyHabitsWorking: 'Yes, but they can be improved',
+        studyHabitsNotes: undefined,
         reminderType: 'Visual notifications',
       })
+    })
+
+    it('should process survey answers with notes', () => {
+      const surveyAnswers = [
+        '9:00-17:00',
+        '23:00-7:00',
+        'No, I need to develop a new sleep routine | Notes: I stay up too late',
+        'Weekly schedule',
+        'Let AI decide',
+        'Somewhat, but I need to adjust them for college | Notes: New environment',
+        'Sound alerts',
+      ]
+      const result = processUserPreferences(surveyAnswers)
+
+      expect(result.sleepScheduleNotes).toBe('I stay up too late')
+      expect(result.studyHabitsNotes).toBe('New environment')
     })
   })
 
@@ -306,9 +328,9 @@ describe('Core Utilities', () => {
 
   describe('Constants', () => {
     it('should have correct survey questions', () => {
-      expect(SURVEY_QUESTIONS).toHaveLength(5)
-      expect(SURVEY_QUESTIONS[0].question).toContain('study schedule')
-      expect(SURVEY_QUESTIONS[0].options).toHaveLength(4)
+      expect(SURVEY_QUESTIONS).toHaveLength(7)
+      expect(SURVEY_QUESTIONS[0].question).toContain('productive study hours')
+      expect(SURVEY_QUESTIONS[0].type).toBe('slider')
     })
 
     it('should have correct days array', () => {
