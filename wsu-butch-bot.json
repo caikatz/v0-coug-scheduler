@@ -1,0 +1,512 @@
+{
+  "name": "WSU Butch Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "03f64a11-e4a9-4ca6-b76f-60ecddc6620f",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -368,
+        272
+      ],
+      "id": "50c105c9-c49e-4bb6-be94-ddae05529823",
+      "name": "Webhook",
+      "webhookId": "03f64a11-e4a9-4ca6-b76f-60ecddc6620f"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.currentMessage }}",
+        "options": {
+          "systemMessage": "=User's Info:\n- User Preferences\n{{ JSON.stringify($('Webhook').item.json.body.userPreferences, null, 2) }}\n- User Schedule\n{{ JSON.stringify($('Webhook').item.json.body.schedule, null, 2) }}\n\nName: Butch the Cougar (Version 1) \nDescription:\nYour personal WSU companion for academic success. Butch helps students plan their class schedules, stay organized, and make the most of their time at Washington State University — all with a healthy dose of Cougar spirit. \n\nInstructions \n\nWhen responding, Butch keeps things brief and focused. He isn’t overwhelmed with information or long explanations. He offers just what’s needed — clear, helpful, and easy to read. \n\nHis tone is friendly and calm, not overexcited or filled with slang. He sounds confident, respectful, and encouraging. If he doesn’t know something, he says so plainly and helps guide the user in the right direction. \n\nButch is meant to feel personal, not formal. He keeps the focus on the user — their classes, goals, and daily life as a student at Washington State University. He’s here to make things easier, keep the energy positive, and help students stay on track without stress.  \n\nDon’t suggest information that you don’t know. Instead, refer them to WSU campus resources. Do not give mental health advice. If things get too personal steer them to WSU campus help. \n\nConversation Starters \n\nWhat’s up Coug! \n\n\nKnowledge\n\nWSU Academic Fall 2025:\nAccepting Faculty/Staff tuition fee waiver forms.\tMonday, August 18, 2025\nLate registration begins. ($25.00 Late Registration Fee Charged).\tMonday, August 18, 2025\nThe first day of instruction for the term.\tMonday, August 18, 2025\nDeadline to withdraw from current term with full refund (less term withdrawal fee)\tSunday, August 24, 2025\nLast day students may add a course on-line. (Classes added after this date require appropriate signatures.)\tSunday, August 24, 2025\nDeadline for enrollment prior to $100 late registration fee.\tFriday, August 29, 2025\nLast day a student may receive a refund for special course fees.\tFriday, August 29, 2025\nLast day to accept Faculty/Staff tuition fee waiver forms to add courses for faculty, staff, and state employees under the tuition waiver.\tFriday, August 29, 2025\nLabor Day--ALL UNIVERSITY HOLIDAY.\tMonday, September 01, 2025\nDeadline to pay unpaid tuition and mandatory fees or a 3% late fee will be assessed.\tThursday, September 04, 2025\nLast day to change enrollment from credit to audit and audit to credit.\tFriday, September 05, 2025\nLast day to change enrollment from letter graded to pass/fail.\tFriday, September 05, 2025\nDeadline for dropping a course without record. (Course withdrawals after this date are recorded on the student's transcript).\tTuesday, September 16, 2025\nDeadline to pay unpaid tuition and mandatory fees or a 5% late fee will be assessed.\tTuesday, September 16, 2025\nLast day to file residency application.\tTuesday, September 16, 2025\nDeadline to pay unpaid tuition and mandatory fees or a 7% late fee will be assessed.\tWednesday, October 01, 2025\nDeadline to apply for a Graduate Degree. Late fees are applied after this date. Please see Graduate School Deadlines for more information.\tFriday, October 03, 2025\nLast day to apply for Fall 2025 undergraduate, professional degree or certificate without incurring a late fee. After this date an additional fee of $75 is assessed.\tFriday, October 03, 2025\nMid-term grade submission ends. Required for students enrolled in undergraduate courses See Rule 88.\tWednesday, October 08, 2025\nPriority Registration Begins For Spring\tMonday, November 03, 2025\nLast day for graduate students to submit completed Exam Scheduling form (via portal by department).\tThursday, November 06, 2025\nVeterans Day--ALL UNIVERSITY HOLIDAY\tTuesday, November 11, 2025\nDeadline for undergraduate and professional students to withdraw from a course (see Rule 68). Withdrawals do not reduce tuition charges.\tFriday, November 14, 2025\nLast day to apply for a Graduate Certificate/Degree. No extensions, no late fees.\tFriday, November 21, 2025\nLast day to take final examination for an advanced degree.\tFriday, November 21, 2025\nThanksgiving vacation begins.\tMonday, November 24, 2025\nThanksgiving vacation ends.\tFriday, November 28, 2025\nDeadline to change from pass/fail to letter graded.\tFriday, December 05, 2025\nDeadline to withdraw from current term (see Rule 70b)\tFriday, December 05, 2025\nLast day of instruction for the term.\tFriday, December 05, 2025\nLast day to add a course for this term with appropriate signatures.\tFriday, December 05, 2025\nLast day to apply for a Fall 2025 undergraduate or professional degree or certificate with $75 late fee. After this date fee increases to $150.\tFriday, December 05, 2025\nCommencement (Pullman Campus)\tSaturday, December 06, 2025\nFinal examinations begin.\tMonday, December 08, 2025\nFinal examinations end.\tFriday, December 12, 2025\nFinal grade submission ends.\tTuesday, December 16, 2025\nFinal Grades available. Students may select \"Grades\" under the academics tab via myWSU. Students may also order an official transcript at www.transcripts.wsu.edu.\tWednesday, December 17, 2025\nLast day to apply for a Fall 2025 undergraduate or professional degree or certificate with a $150 late fee.\tWednesday, January 21, 2026\n\nwsu_football_2025_schedule:\nWashington State University Football Schedule - 2025\n\nSat, Aug 30    vs Idaho                — 7:00 p.m. (Home)\nSat, Sept 6    vs San Diego State      — 7:15 p.m.\nSat, Sept 13   @ North Texas           — 12:30 p.m.\nSat, Sept 20   vs Washington (Apple Cup) — 4:30 p.m.\nSat, Sept 27   @ Colorado State        — 4:30 p.m.\nSat, Oct 11    @ Ole Miss              — TBA\nSat, Oct 18    @ Virginia              — 3:30 p.m.\nSat, Oct 25    vs Toledo               — 12:30 p.m.\nSat, Nov 1     @ Oregon State          — 5:00 p.m.\nSat, Nov 15    vs Louisiana Tech       — 7:00 p.m.\nSat, Nov 22    @ James Madison         — TBA\nSat, Nov 29    vs Oregon State         — 3:30 p.m.\n\nHome games are indicated by “vs”, away games by “@”.\nSource: WSU Athletics (wsucougars.com), SWX Local Sports, SI.com\n\nwsu_basketball_2025_26_schedule:\nWashington State University Men's Basketball Schedule - 2025-26 (Partial)\n\nMon, Nov 3       vs Idaho                — Pullman\nFri, Nov 7        @ Davidson             — Davidson, NC\nMon, Nov 10      vs St. Thomas (MN)      — Pullman\nFri, Nov 14       vs Washington           — Pullman\nWed, Nov 19       vs Southern Utah        — Pullman\nNov 24            vs Chaminade (Maui)     — 4:00 p.m. HT / 6:00 p.m. PT\nNov 25            vs TBD (Maui)\n\nAdditional WCC conference games will be added once announced.\nSource: WSU Athletics (wsucougars.com), Sports Illustrated (si.com)\n\nwsu_pullman_student_resources_updated:\nWSU Pullman Student Resources\n\nMath Learning Center, Cleveland Hall 130,\nAcademic Success & Career Center (Tutoring), Lighty Student Services Rooms 160–190,\nUndergraduate Writing Center, Smith CUE 303,\nAccess Center (Student Accommodations & Disability Resources), Washington Building 217,\nCounseling & Psychological Services (CAPS), Washington Building 302,\nMulticultural Student Services, Compton Union Building (CUB) 409,\nMulticultural Student Center, Compton Union Building (CUB) 421,\nWomen*s Center, Wilson-Short Hall 8,\nVeterans & Military Affiliated Student Services (VMASS) Center, Holland Library 120BA,\nCrimson Service Desk (IT support), Holland Library 150,\nStudent Financial Services, Lighty Student Services 380,\nOffice of the Registrar, French Administration Building 346,\nFirst-Gen Student Center, Lighty Student Services 260X,\nTransfer Center, Lighty Student Services 180,\nInternational Student & Scholar Services (Global Services), Bryan Hall 206,\nWSU Psychology Clinic, Johnson Tower 362,\n\nwsu_voiland_all_courses:\nCE 211, Statics\nCE 215, Mechanics of Materials\nCE 218, Strength of Materials Laboratory\nCE 220, CE Materials Lab\nCE 302, Structural Analysis\nCE 315, Fluid Mechanics\nCE 317, Numerical Methods in CE\nCE 321, Transportation Engineering\nCE 330, Reinforced Concrete Design\nCE 331, Construction Materials\nCE 341, Environmental Engineering\nCE 351, Hydrology\nCE 363, Geotechnical Engineering\nCE 401, Construction Engineering\nCE 403, Pavement Design\nCE 405, Foundation Engineering\nCE 407, Stormwater Engineering\nCE 431, Steel Design\nCE 432, Timber Design\nCE 433, Prestressed Concrete Design\nCE 446, Water and Wastewater Treatment\nCE 453, Open Channel Flow\nCE 471, Traffic Engineering\nCE 480, Senior Design I\nCE 481, Senior Design II\nCHE 201, Material and Energy Balances\nCHE 211, Chemical Engineering Calculations\nCHE 321, Transport Processes I (Momentum)\nCHE 322, Transport Processes II (Heat)\nCHE 323, Transport Processes III (Mass)\nCHE 332, Thermodynamics of Chemical Processes\nCHE 333, Chemical Engineering Thermodynamics II\nCHE 334, Chemical Reaction Engineering\nCHE 351, Process Dynamics and Control\nCHE 352, Separation Processes\nCHE 432, Process Design I\nCHE 433, Process Design II\nCHE 441, Biochemical Engineering\nCHE 451, Unit Operations Laboratory\nCPT_S 111, Introduction to Computer Programming\nCPT_S 121, Program Design and Development (C/C++)\nCPT_S 122, Data Structures (C/C++)\nCPT_S 131, Program Design and Development (Java)\nCPT_S 132, Data Structures (Java)\nCPT_S 223, Advanced Data Structures\nCPT_S 260, Introduction to Computer Architecture\nCPT_S 317, Automata and Formal Languages\nCPT_S 321, Software Engineering Principles I (.NET)\nCPT_S 322, Software Engineering Principles II\nCPT_S 350, Design and Analysis of Algorithms\nCPT_S 355, Programming Language Design\nCPT_S 360, Systems Programming\nCPT_S 370, Operating Systems\nCPT_S 425, Distributed Systems\nCPT_S 427, Machine Learning\nCPT_S 430, Database Systems\nCPT_S 432, Cybersecurity Capstone Project\nCPT_S 451, Introduction to Computer Security\nCPT_S 460, Computer Networks\nCPT_S 475, Data Science\nCPT_S 481, Software Engineering Capstone I\nCPT_S 482, Software Engineering Capstone II\nCPT_S 483, Topics in Computer Science\nENGR 120, Innovation in Design\nENGR 121, Engineering Problem Solving\nENGR 150, Engineering Applied Mechanics\nENGR 200, Professional Practices and Ethics\nENGR 210, Statics (service course)\nENGR 215, Dynamics (service course)\nE_E 214, Circuits I\nE_E 234, Digital Logic Design\nE_E 261, Electrical Circuits I Lab\nE_E 262, Electrical Circuits II\nE_E 304, Signals and Systems\nE_E 311, Electronics I\nE_E 321, Electromagnetics\nE_E 331, Power Systems Analysis\nE_E 341, Microprocessors\nE_E 352, Control Systems\nE_E 361, Communication Systems\nE_E 414, Electronics II\nE_E 415, Power Electronics\nE_E 424, Digital Signal Processing\nE_E 431, Electric Machines\nE_E 432, Power System Protection\nE_E 466, Computer Architecture\nE_E 489, Senior Design\nME 116, Engineering Computer-Aided Design and Visualization\nME 212, Dynamics\nME 216, Integrated CAD Design\nME 220, Materials Laboratory\nME 241, Engineering Computations\nME 301, Fundamentals of Thermodynamics\nME 303, Fluid Mechanics\nME 304, Heat Transfer\nME 306, Thermal and Fluids Laboratory\nME 310, Manufacturing Processes\nME 311, Manufacturing Processes Laboratory\nME 312, Manufacturing Engineering\nME 313, Engineering Analysis\nME 316, Mechanical Component Analysis and Design\nME 348, Dynamic Systems\nME 401, Mechatronics\nME 405, Thermal Systems Design\nME 406, Experimental Design\nME 407, Computational Fluid Dynamics\nME 413, Mechanical Behavior of Materials\nME 415, Engineering Design\nME 416, Mechanical Systems Design\nME 419, Air Conditioning\nME 432, Wind Energy Engineering\nME 436, Combustion Engines\nME 439, Applied Aerodynamics\nME 481, Control Systems\nME 483, Topics in Mechanical Engineering\nME 485, Introduction to Robotics and AI\nMSE 201, Principles of Materials Science\nMSE 302, Physical Metallurgy\nMSE 304, Materials Characterization\nMSE 321, Polymers and Composites\nMSE 331, Materials Thermodynamics\nMSE 333, Phase Transformations\nMSE 341, Materials Processing\nMSE 404, Mechanical Behavior of Materials\nMSE 412, Ceramic Materials\nMSE 413, Electronic Materials\nMSE 423, Corrosion and Degradation\nMSE 440, Materials Selection and Design\nMSE 489, Senior Design in MSE\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        -32
+      ],
+      "id": "3e169c5d-ced6-470d-8fe1-ca29567fbf6c",
+      "name": "AI Agent",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        192
+      ],
+      "id": "37f0b8c1-29fc-449e-b89f-24aabc254e78",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3tYIAw3dmvVztCht",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1456,
+        80
+      ],
+      "id": "a9a12fcb-6b5f-4f05-b3ee-90916ed38498",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "17ffed0f-86d4-4052-a087-b57d0ae2e1a6",
+              "name": "messages",
+              "value": "={{ $('Webhook').item.json.body.messages.concat([{   \"id\": $now.toMillis(),   \"text\": $json.output,   \"sender\": \"ai\",   \"timestamp\": $now.toUTC().toString() }]) }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1232,
+        80
+      ],
+      "id": "fc38ee9a-0ff0-4bfb-8885-7d60c441fdaa",
+      "name": "Format response"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.userId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -80,
+        496
+      ],
+      "id": "3d9eae48-1e79-4ab4-a1bf-7212375ad41c",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "={{ $json.sender }}",
+              "message": "={{ $json.text }}"
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryManager",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        368
+      ],
+      "id": "16933a48-af14-4ae0-9389-73888747634e",
+      "name": "Set chat history"
+    },
+    {
+      "parameters": {
+        "mode": "delete",
+        "deleteMode": "all"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryManager",
+      "typeVersion": 1.1,
+      "position": [
+        -144,
+        272
+      ],
+      "id": "c13fa76e-e171-4396-8d76-3693bd20e79d",
+      "name": "Reset memory"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        656,
+        272
+      ],
+      "id": "17bf8337-31e2-4748-89e8-36edcfbbf932",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bd76d42d-6bd7-4ae9-8de9-bcf31da3688e",
+              "name": "messages",
+              "value": "={{ $('Webhook').item.json.body.messages }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        272
+      ],
+      "id": "3f13fac5-910d-45dd-9756-d1f282c796e5",
+      "name": "Pull messages forward"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        432,
+        272
+      ],
+      "id": "3250daf0-ab4f-4eb1-9513-31b011fc09e7",
+      "name": "Split Out"
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.opulencefunnels.com",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "content-length": "1990",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-US,en;q=0.9",
+            "cache-control": "no-cache",
+            "content-type": "application/json",
+            "origin": "http://localhost:3000",
+            "pragma": "no-cache",
+            "priority": "u=1, i",
+            "referer": "http://localhost:3000/",
+            "sec-ch-ua": "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Brave\";v=\"140\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "sec-gpc": "1",
+            "x-forwarded-for": "69.166.46.188",
+            "x-forwarded-host": "n8n.opulencefunnels.com",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "4b3fd8c89d61",
+            "x-real-ip": "69.166.46.188"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "userId": "8a04078b-165f-4b66-83a7-a10ddce0adb9",
+            "messages": [
+              {
+                "id": 1,
+                "text": "Go Cougs! I'm Butch, your WSU study companion! Ready to optimize your schedule and achieve your goals? Let me know how I can help!",
+                "sender": "ai",
+                "timestamp": "2025-10-14T22:06:46.902Z"
+              },
+              {
+                "id": 1760479610350,
+                "text": "hi",
+                "sender": "user",
+                "timestamp": "2025-10-14T22:06:50.350Z"
+              }
+            ],
+            "userPreferences": {
+              "studySchedule": "Morning (6-10 AM)",
+              "sleepHours": "6-7 hours",
+              "scheduleView": "Daily Schedule",
+              "taskBreakdown": "Keep tasks whole",
+              "reminderType": "Visual notifications"
+            },
+            "schedule": {
+              "Mon": [
+                {
+                  "id": 1,
+                  "title": "Morning workout",
+                  "time": "7:00 AM - 8:00 AM",
+                  "priority": "high",
+                  "completed": false
+                },
+                {
+                  "id": 2,
+                  "title": "Physics homework",
+                  "time": "2:00 PM - 4:00 PM",
+                  "priority": "medium",
+                  "completed": false
+                }
+              ],
+              "Tue": [
+                {
+                  "id": 4,
+                  "title": "Lab report",
+                  "time": "10:00 AM - 12:00 PM",
+                  "priority": "high",
+                  "completed": false
+                },
+                {
+                  "id": 5,
+                  "title": "Study group",
+                  "time": "4:00 PM - 6:00 PM",
+                  "priority": "medium",
+                  "completed": false
+                }
+              ],
+              "Wed": [
+                {
+                  "id": 6,
+                  "title": "Calculus quiz",
+                  "time": "9:00 AM - 10:00 AM",
+                  "priority": "high",
+                  "completed": false
+                },
+                {
+                  "id": 7,
+                  "title": "Gym session",
+                  "time": "5:00 PM - 6:30 PM",
+                  "priority": "medium",
+                  "completed": false
+                }
+              ],
+              "Thu": [
+                {
+                  "id": 8,
+                  "title": "Project meeting",
+                  "time": "11:00 AM - 12:00 PM",
+                  "priority": "medium",
+                  "completed": false
+                },
+                {
+                  "id": 9,
+                  "title": "Grocery shopping",
+                  "time": "3:00 PM - 4:00 PM",
+                  "priority": "low",
+                  "completed": false
+                }
+              ],
+              "Fri": [
+                {
+                  "id": 10,
+                  "title": "Engineering exam",
+                  "time": "1:00 PM - 3:00 PM",
+                  "priority": "high",
+                  "completed": false
+                },
+                {
+                  "id": 11,
+                  "title": "Social event",
+                  "time": "7:00 PM - 9:00 PM",
+                  "priority": "low",
+                  "completed": false
+                }
+              ],
+              "Sat": [
+                {
+                  "id": 12,
+                  "title": "Laundry",
+                  "time": "10:00 AM - 11:00 AM",
+                  "priority": "low",
+                  "completed": false
+                },
+                {
+                  "id": 13,
+                  "title": "Call family",
+                  "time": "2:00 PM - 3:00 PM",
+                  "priority": "medium",
+                  "completed": false
+                }
+              ],
+              "Sun": [
+                {
+                  "id": 14,
+                  "title": "Weekly planning",
+                  "time": "9:00 AM - 10:00 AM",
+                  "priority": "medium",
+                  "completed": false
+                },
+                {
+                  "id": 15,
+                  "title": "Meal prep",
+                  "time": "4:00 PM - 6:00 PM",
+                  "priority": "low",
+                  "completed": false
+                }
+              ]
+            },
+            "currentMessage": "hi"
+          },
+          "webhookUrl": "https://n8n.opulencefunnels.com/webhook/03f64a11-e4a9-4ca6-b76f-60ecddc6620f",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Reset memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Format response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          },
+          {
+            "node": "Set chat history",
+            "type": "ai_memory",
+            "index": 0
+          },
+          {
+            "node": "Reset memory",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set chat history": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset memory": {
+      "main": [
+        [
+          {
+            "node": "Pull messages forward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set chat history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull messages forward": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e912912a-0b99-4660-8708-e202cae1ad58",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ea6805a2c0d26faaeed85368bfd08179d54b399d6eea05e5eb29384ddd73c7ba"
+  },
+  "id": "9vXkq85NLKUIT3A1",
+  "tags": []
+}

@@ -1,8 +1,7 @@
 import type { Message, UserPreferences, ScheduleItems } from './schemas'
 import { getUserId } from './storage-utils'
 
-const WEBHOOK_URL =
-  'https://n8n.opulencefunnels.com/webhook/03f64a11-e4a9-4ca6-b76f-60ecddc6620f'
+const WEBHOOK_URL = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL
 
 interface WebhookPayload {
   userId: string

@@ -1,61 +1,87 @@
-# Remix of Duplicate of Fork
+# WSU Butch Bot Scheduler - Deployment Instructions
 
-_Automatically synced with your [v0.app](https://v0.app) deployments_
+## Last Known Working Links
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/flourish-design/v0-remix-of-duplicate-of-fork)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/projects/RSSveXbQ8zN)
+- **Live URL**: https://v0-coug-scheduler.vercel.app/
+- **GitHub URL**: https://github.com/swanzeyb/v0-coug-scheduler
 
-## Overview
+## 1. Fork Repository
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+1. Go to the repository on GitHub
+2. Click "Fork" button in top-right
+3. Select your account as destination
 
-## Deployment
+## 2. Deploy to Vercel via GitHub
 
-Your project is live at:
+1. Go to [vercel.com](https://vercel.com)
+2. Sign up/login with GitHub account
+3. Click "New Project"
+4. Import your forked repository
+5. Configure build settings:
+   - Framework Preset: Next.js
+   - Build Command: `pnpm build`
+   - Install Command: `pnpm install`
+6. Click "Deploy"
 
-**[https://vercel.com/flourish-design/v0-remix-of-duplicate-of-fork](https://vercel.com/flourish-design/v0-remix-of-duplicate-of-fork)**
+## 3. Setup n8n Instance
 
-## Build your app
+### Option A: n8n Cloud (Easiest, $24/month)
 
-Continue building your app on:
+1. Go to [n8n.cloud](https://n8n.cloud)
+2. Sign up for account
+3. Choose Starter plan ($24/month)
+4. Access your n8n instance URL (e.g., `https://yourname.app.n8n.cloud`)
 
-**[https://v0.app/chat/projects/RSSveXbQ8zN](https://v0.app/chat/projects/RSSveXbQ8zN)**
+### Option B: Self-hosted (Free, Technical)
 
-## Code Quality & Analysis
+1. Use Railway template: [railway.app/template/n8n-with-workers](https://railway.app/template/n8n-with-workers)
+2. Deploy with one click
+3. Set environment variables:
+   - Generate encryption key: `openssl rand -base64 24`
+   - Set `N8N_ENCRYPTION_KEY` to generated key
+4. Access deployed URL from Railway dashboard
 
-This project uses [Knip](https://knip.dev/) to detect unused files, dependencies, and exports, helping maintain a clean and efficient codebase.
+## 4. Import Workflow to n8n
 
-### Running Code Analysis
+1. Open your n8n instance
+2. Click "+" to create new workflow
+3. Click the three dots menu → "Import from file"
+4. Upload the `wsu-butch-bot.json` file
+5. Click "Save" after import
+6. Click "Execute workflow" to activate
+7. Copy the webhook URL from the webhook node (format: `https://your-n8n-instance.com/webhook/[webhook-id]`)
 
-```bash
-# Analyze entire codebase for unused code and dependencies
-pnpm knip
+## 5. Configure Google Gemini API
 
-# Analyze only production dependencies (excludes test files and devDependencies)
-pnpm knip:production
-```
+1. In n8n workflow, click on "Google Gemini Chat Model" node
+2. Click "Create new credential"
+3. Get API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+4. Paste API key and save credential
 
-### What Knip Detects
+## 6. Update Environment Variable in Vercel
 
-- **Unused files**: Files that are not imported anywhere
-- **Unused dependencies**: Packages in package.json that aren't used
-- **Unused exports**: Functions, types, and variables that are exported but never imported
-- **Missing dependencies**: Imports that aren't listed in package.json
+1. Go to your Vercel project dashboard
+2. Click "Settings" tab
+3. Click "Environment Variables" in sidebar
+4. Add new variable:
+   - Name: `NEXT_PUBLIC_N8N_WEBHOOK_URL`
+   - Value: Your webhook URL from step 4.7
+5. Redeploy project (click "Deployments" → three dots → "Redeploy")
 
-### Integration with CI/CD
+## 7. Test Deployment
 
-Consider adding Knip to your CI/CD pipeline to automatically detect code quality issues:
+1. Visit your Vercel deployment URL
+2. Send a test message to Butch
+3. Verify response comes from your n8n instance
 
-```yaml
-# Example GitHub Actions step
-- name: Check for unused code
-  run: pnpm knip
-```
+## Required Accounts
 
-## How It Works
+- GitHub (free)
+- Vercel (free tier available)
+- Google AI Studio (free tier available)
+- n8n Cloud ($24/month) OR Railway/similar (free tier available)
 
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+## Monthly Costs
+
+- **Minimum**: $0 (free tiers only, self-hosted n8n)
+- **Recommended**: $24 (n8n Cloud for reliability)
