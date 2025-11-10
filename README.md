@@ -1,7 +1,5 @@
 # WSU Butch Bot Scheduler - Deployment Instructions
 
-Test
-
 ## Last Known Working Links
 
 - **Live URL**: https://v0-coug-scheduler.vercel.app/
