@@ -141,6 +141,7 @@ export default function ScheduleApp() {
     userPreferences,
     setSurveyState,
     updateSurveyAnswer,
+    goBackInSurvey,
     completeSurvey,
   } = useSurveyState()
 
@@ -555,7 +556,19 @@ export default function ScheduleApp() {
 
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md p-8 text-center">
+        <Card className="w-full max-w-md p-8 text-center relative">
+          {/* Back arrow - only show if not on first question */}
+          {currentQuestionIndex > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={goBackInSurvey}
+              className="absolute top-4 left-4 h-8 w-8 p-0"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+
           <div className="mb-6">
             <div className="w-16 h-16 bg-red-700 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden">
               <Image

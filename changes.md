@@ -1,8 +1,8 @@
 Needed:
 
-- Spits out JSON summary
-- Put the tasks in
-- Hard to find back arrow
+- ~~Spits out JSON summary
+- ~~Put the tasks in
+- ~~Hard to find back arrow
 - Should tell the user they're done
 - Switch to different prompt after onboarding
 - Persistent history

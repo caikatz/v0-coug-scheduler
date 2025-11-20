@@ -86,6 +86,22 @@ export function useSurveyState() {
     [setSurveyState]
   )
 
+  const goBackInSurvey = useCallback(() => {
+    setSurveyState((prev) => {
+      if (prev.currentQuestionIndex > 0) {
+        // Remove the last answer and go back one question
+        const newAnswers = [...prev.surveyAnswers]
+        newAnswers.pop()
+        return {
+          ...prev,
+          surveyAnswers: newAnswers,
+          currentQuestionIndex: prev.currentQuestionIndex - 1,
+        }
+      }
+      return prev
+    })
+  }, [setSurveyState])
+
   const completeSurvey = useCallback(
     (preferences: UserPreferences) => {
       setSurveyState((prev) => ({
@@ -105,6 +121,7 @@ export function useSurveyState() {
     ...surveyState,
     setSurveyState,
     updateSurveyAnswer,
+    goBackInSurvey,
     completeSurvey,
     resetSurvey,
   }
