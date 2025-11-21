@@ -9,7 +9,7 @@ Needed:
 - ~~Switch to different prompt after onboarding
 - Won't do, out of scope: ~~Show persistent history
 - ~~Can make a task that starts before it ends
-- Remove feature buttons
+- ~~Remove feature buttons
 - Survey button, starts at end
 - Percent complete of the day
 - Says butch, its fred the lion bot

@@ -10,9 +10,6 @@ import {
   ChevronRight,
   ArrowLeft,
   Send,
-  Settings,
-  Share,
-  BarChart3,
   AlertCircle,
   Plus,
   Grid3X3,
@@ -141,7 +138,6 @@ export default function ScheduleApp() {
     currentQuestionIndex,
     surveyAnswers,
     userPreferences,
-    setSurveyState,
     updateSurveyAnswer,
     goBackInSurvey,
     completeSurvey,
@@ -211,17 +207,6 @@ export default function ScheduleApp() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, isLoading])
-
-  function calculateSuccessPercentage() {
-    const allTasks = Object.values(scheduleItems).flat()
-    const completedTasks = allTasks.filter((task) => task.completed)
-    const totalTasks = allTasks
-
-    if (totalTasks.length === 0) return 0
-    return Math.round((completedTasks.length / totalTasks.length) * 100)
-  }
-
-  const successPercentage = calculateSuccessPercentage()
 
   // Helper to convert slider value to hour string
   function sliderToHourString(value: number, questionId: number): string {
@@ -425,12 +410,6 @@ export default function ScheduleApp() {
       e.preventDefault()
       handleSendMessage()
     }
-  }
-
-  function getSuccessColor(percentage: number) {
-    if (percentage >= 80) return 'text-green-500'
-    if (percentage >= 60) return 'text-yellow-500'
-    return 'text-red-500'
   }
 
   function getPriorityIcon(priority: string) {
@@ -832,7 +811,7 @@ export default function ScheduleApp() {
                   }`}
                 >
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                    {(message as any).content ||
+                    {(message as { content?: string }).content ||
                       message.parts?.map((part, index) => {
                         if (part.type === 'text') {
                           return <span key={index}>{part.text}</span>
@@ -1069,39 +1048,6 @@ export default function ScheduleApp() {
   return (
     <div className="min-h-screen bg-background p-4 max-w-md mx-auto">
       <div className="bg-gradient-to-r from-muted/40 to-muted/20 rounded-3xl p-6 mb-6 border border-border/50 shadow-lg relative">
-        {/* Corner Icons */}
-        <div className="absolute top-4 left-4">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="absolute top-4 right-4">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-            <Share className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="absolute bottom-4 left-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() =>
-              setSurveyState((prev) => ({ ...prev, showSurvey: true }))
-            }
-          >
-            <BarChart3 className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="absolute bottom-4 right-4">
-          <div
-            className={`flex items-center gap-1 ${getSuccessColor(
-              successPercentage
-            )}`}
-          >
-            <span className="text-sm font-semibold">{successPercentage}%</span>
-          </div>
-        </div>
-
         <h3 className="text-sm font-semibold text-foreground mb-4 text-center">
           WSU AI Companion
         </h3>
