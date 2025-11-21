@@ -57,7 +57,7 @@ export function useAIChat(
     }
 
     message +=
-      "\n\nReady to dive in? Let's start with your classes this semester. What are you taking, and how many credits is each one?"
+      "\n\nReady to dive in? Let's start with your classes this semester - I want to go through each one and figure out realistic study hours based on how challenging they are. What classes are you taking?"
 
     return message
   }, [userPreferences, onboardingCompleted])

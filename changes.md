@@ -5,7 +5,7 @@ Needed:
 - ~~Hard to find back arrow
 - ~~When messages stream in, the chat needs to scroll to the bottom
 - ~~Should tell the user they're done
-- Have more of a conversation of the homework hours
+- ~~Have more of a conversation of the homework hours
 - ~~Switch to different prompt after onboarding
 - Show persistent history
 - Can make a task that starts before it ends
