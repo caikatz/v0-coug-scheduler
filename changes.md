@@ -14,8 +14,8 @@ Needed:
 - ~~Percent complete of the day
 - ~~Says butch, its fred the lion bot
 - ~~Go backwards on survey
-- Screen 3
-  - Is the current sleep schedule working?
-  - Options:
-    - Yes - needs no improvements
-      Needs no improvements
+- ~~Screen 3
+  - ~~Is the current sleep schedule working?
+  - ~~Options:
+    - ~~Yes - no improvements needed
+      ~~Needs no improvements~~

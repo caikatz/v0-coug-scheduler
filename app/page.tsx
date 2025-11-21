@@ -79,10 +79,10 @@ const SURVEY_QUESTIONS = [
     question: 'Is your current sleep schedule working for you?',
     type: 'multiple-choice' as const,
     options: [
-      'No, I need to develop a new sleep routine',
-      'Somewhat, but I need to adjust it for college',
-      'Yes, but it can be improved',
-      'Yes, it needs no improvements',
+      'I need to develop a new sleep routine',
+      'I need to adjust it for college',
+      'It can be improved',
+      'No improvements needed',
     ],
     requiresFollowUp: [0, 1, 2], // Indices that require follow-up
   },
