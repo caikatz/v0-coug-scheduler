@@ -1,5 +1,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { PostHog } from 'posthog-node'
+import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
 
 // Allow streaming responses up to 30 seconds
@@ -9,6 +11,11 @@ export const maxDuration = 30
 const google = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_GEMINI_API_KEY,
 })
+
+const phClient = new PostHog(
+  'phc_I2KRzOerAFE5xbd3DKMHQUIOcLnOQkD4he91kmJYAFT',
+  { host: 'https://us.i.posthog.com' }
+)
 
 interface ChatRequestBody {
   messages: UIMessage[]
@@ -463,9 +470,23 @@ export async function POST(req: Request) {
 
   // Generate streaming response using Gemini Flash 2.5
   const result = streamText({
-    model: google('gemini-2.5-flash'),
+    model: withTracing(google('gemini-2.5-flash'), phClient, {
+      posthogProperties: {
+        conversationType: onboardingCompleted
+          ? 'post-onboarding'
+          : 'onboarding',
+        hasUserPreferences: !!userPreferences,
+        hasSchedule: !!(schedule && Object.keys(schedule).length > 0),
+        messageCount: messages.length,
+        botName: 'fred-butch',
+      },
+      posthogPrivacyMode: false,
+    }),
     system: systemPrompt,
     messages: coreMessages,
+    onFinish: async () => {
+      await phClient.flush()
+    },
   })
 
   return result.toUIMessageStreamResponse()

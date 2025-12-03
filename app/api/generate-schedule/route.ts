@@ -1,12 +1,19 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateObject } from 'ai'
 import { AIGeneratedScheduleSchema } from '@/lib/schemas'
+import { PostHog } from 'posthog-node'
+import { withTracing } from '@posthog/ai'
 
 export const maxDuration = 30
 
 const google = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_GEMINI_API_KEY,
 })
+
+const phClient = new PostHog(
+  'phc_I2KRzOerAFE5xbd3DKMHQUIOcLnOQkD4he91kmJYAFT',
+  { host: 'https://us.i.posthog.com' }
+)
 
 interface GenerateScheduleRequest {
   messages: Array<{
@@ -79,7 +86,15 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
     console.log('🤖 Starting AI generation with Gemini 2.5 Flash...')
 
     const { object } = await generateObject({
-      model: google('gemini-2.5-flash'),
+      model: withTracing(google('gemini-2.5-flash'), phClient, {
+        posthogProperties: {
+          operation: 'schedule-generation',
+          conversationLength: messages.length,
+          contextCharacters: conversationContext.length,
+          botName: 'fred-butch',
+        },
+        posthogPrivacyMode: false,
+      }),
       schema: AIGeneratedScheduleSchema,
       schemaName: 'WeeklySchedule',
       schemaDescription:
@@ -89,6 +104,8 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
         'Analyze the conversation above and generate a weekly schedule that includes ONLY the specific commitments, classes, assignments, and activities that were explicitly mentioned by the student. Do not add any generic activities, placeholder content, or assumptions beyond what was directly stated in the conversation.',
       temperature: 1, // Maximum consistency and determinism
     })
+
+    await phClient.flush()
 
     console.timeEnd('ai-api-call')
     console.log('✅ AI generation completed')
