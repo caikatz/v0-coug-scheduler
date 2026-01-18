@@ -20,8 +20,23 @@ export function useAIChat(
     setSessionId(`fred-chat-session-${Date.now()}`)
   }, [sessionKey])
 
-  // Create the opening message based on user preferences and onboarding status
+  // Storage key for persistence
+  const storageKey = `fred-chat-messages-${sessionKey ?? 'default'}`
+
+  // Load saved messages from localStorage
+  const savedMessages = useMemo(() => {
+    try {
+      const saved = localStorage.getItem(storageKey)
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  }, [storageKey])
+
+  // Create the opening message (only if no saved messages exist)
   const openingMessage = useMemo(() => {
+    if (savedMessages.length > 0) return null // skip if messages exist
+
     if (onboardingCompleted) {
       // Post-onboarding: casual check-in message
       const greetings = [
@@ -60,20 +75,22 @@ export function useAIChat(
       "\n\nReady to dive in? Let's start with your classes this semester - I want to go through each one and figure out realistic study hours based on how challenging they are. What classes are you taking?"
 
     return message
-  }, [userPreferences, onboardingCompleted])
+  }, [savedMessages, userPreferences, onboardingCompleted])
 
-  // Initial messages with Fred's greeting
-  const initialMessages = useMemo(
-    () => [
+  // Determine initial messages: either restored or a single opening message
+  const initialMessages = useMemo(() => {
+    if (savedMessages.length > 0) return savedMessages
+
+    return [
       {
         id: `fred-opening-${sessionKey}`,
         role: 'assistant' as const,
         parts: [{ type: 'text' as const, text: openingMessage }],
       },
-    ],
-    [openingMessage, sessionKey]
-  )
+    ]
+  }, [savedMessages, openingMessage, sessionKey])
 
+  // Chat options for useChat
   const chatOptions = useMemo(
     () => ({
       id: sessionId,
@@ -96,7 +113,21 @@ export function useAIChat(
     ]
   )
 
+  // Hook that manages AI chat
   const { messages, sendMessage, status, error, stop } = useChat(chatOptions)
+
+  // Persist messages on every change, trimming to last 50
+  useEffect(() => {
+    if (!messages || messages.length === 0) return
+    try {
+      // Keep only the last 50 messages
+      const trimmed = messages.slice(-50)
+      localStorage.setItem(storageKey, JSON.stringify(trimmed))
+    } catch (err) {
+      console.error('Failed to store chat messages', err)
+    }
+  }, [messages, storageKey])
+
 
   return {
     messages,
