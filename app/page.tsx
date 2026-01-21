@@ -872,7 +872,7 @@ export default function ScheduleApp() {
                   <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
                     <Image
                       src="/images/butch-cougar.png"
-                      alt="Butch the Cougar"
+                      alt="Fred the Cougar"
                       width={24}
                       height={24}
                       className="object-contain"
@@ -938,7 +938,7 @@ export default function ScheduleApp() {
                       <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      Butch is thinking...
+                      Fred is thinking...
                     </span>
                   </div>
                 </div>
@@ -957,8 +957,8 @@ export default function ScheduleApp() {
                 onKeyPress={handleKeyPress}
                 placeholder={
                   isLoading
-                    ? 'Butch is thinking...'
-                    : 'Message Butch the Cougar...'
+                    ? 'Fred is thinking...'
+                    : 'Message Fred the Cougar...'
                 }
                 disabled={isLoading}
                 className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"

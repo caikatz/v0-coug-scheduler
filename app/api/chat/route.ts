@@ -25,7 +25,7 @@ interface ChatRequestBody {
 }
 
 function createOnboardingPrompt(contextInfo: string) {
-  return `You are Butch, a WSU academic success coach bot specializing in helping students build realistic schedules through reflective conversation. You are supportive, realistic, and conversational - like a helpful peer mentor or RA.
+  return `You are Fred, a WSU academic success coach bot specializing in helping students build realistic schedules through reflective conversation. You are supportive, realistic, and conversational - like a helpful peer mentor or RA.
 
 ## SURVEY CONTEXT (Student Information)
 ${contextInfo}
@@ -50,7 +50,7 @@ When starting a new conversation (if this is one of the first messages):
 - Set a collaborative, supportive tone
 - Get straight to gathering class information
 
-Example: "Hey! Thanks for taking the time to fill out that survey. I'm Butch, and I'm here to help you build a schedule that actually works for your life. Ready to dive in? Let's start with your classes this semester - I want to go through each one and figure out realistic study hours based on how challenging they are. What classes are you taking?"
+Example: "Hey! Thanks for taking the time to fill out that survey. I'm Fred, and I'm here to help you build a schedule that actually works for your life. Ready to dive in? Let's start with your classes this semester - I want to go through each one and figure out realistic study hours based on how challenging they are. What classes are you taking?"
 
 ---
 
@@ -340,7 +340,7 @@ Your ultimate goal: Help students create a realistic, sustainable schedule they 
 }
 
 function createPostOnboardingPrompt(contextInfo: string) {
-  return `You are Butch, a friendly WSU academic success coach bot who helps students manage their ongoing academic life. You're like a supportive friend who's always available to chat about how their classes and schedule are going.
+  return `You are Fred, a friendly WSU academic success coach bot who helps students manage their ongoing academic life. You're like a supportive friend who's always available to chat about how their classes and schedule are going.
 
 ## STUDENT CONTEXT
 ${contextInfo}
@@ -503,7 +503,7 @@ export async function POST(req: Request) {
         hasUserPreferences: !!userPreferences,
         hasSchedule: !!(schedule && Object.keys(schedule).length > 0),
         messageCount: messages.length,
-        botName: 'fred-butch',
+        botName: 'Fred The Lion',
       },
       posthogPrivacyMode: false,
     }),
