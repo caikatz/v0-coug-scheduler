@@ -3,6 +3,7 @@ import {
   AIScheduleBlock,
   ScheduleItems,
   ScheduleItem,
+  ScheduleChange,
   WSU_SEMESTER
 } from './schemas'
 import { formatTime24To12 } from './schemas'
@@ -213,4 +214,106 @@ export function mergeScheduleForWeek(
   }
 
   return clearedSchedule
+  }
+
+  export function applyScheduleChanges(
+  existingSchedule: ScheduleItems,
+  changes: ScheduleChange[],
+  weekDates: Date[],
+  startingTaskId: number,
+  semesterEndDate: string
+  ): ScheduleItems {
+    const updatedSchedule: ScheduleItems = {
+    Mon: [...(existingSchedule.Mon || [])],
+    Tue: [...(existingSchedule.Tue || [])],
+    Wed: [...(existingSchedule.Wed || [])],
+    Thu: [...(existingSchedule.Thu || [])],
+    Fri: [...(existingSchedule.Fri || [])],
+    Sat: [...(existingSchedule.Sat || [])],
+    Sun: [...(existingSchedule.Sun || [])],
+  }
+
+  const dayMap: Record<string, keyof ScheduleItems> = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri',
+    Saturday: 'Sat',
+    Sunday: 'Sun',
+  }
+
+  let currentTaskId = startingTaskId
+
+  for (const change of changes) {
+    const dayKey = dayMap[change.day]
+    if (!dayKey) continue
+
+    switch (change.operation) {
+      case 'remove':
+        // Remove all items matching the title (across all weeks if recurring)
+        if (change.match_title) {
+          updatedSchedule[dayKey] = updatedSchedule[dayKey].filter(
+            (item) => !item.title.toLowerCase().includes(change.match_title!.toLowerCase())
+          )
+        }
+        break
+
+      case 'add':
+        // Add new item(s) - handle recurring vs one-time
+        if (change.item) {
+          const allWeeks = change.item.is_recurring
+            ? getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
+            : [weekDates]
+
+          const dayIndex = Object.keys(dayMap).indexOf(change.day)
+
+          for (const week of allWeeks) {
+            const dateForDay = week[dayIndex]
+            const dueDateString = dateForDay.toISOString().split('T')[0]
+
+            const newItem = convertBlockToItem(
+              change.item,
+              currentTaskId,
+              dueDateString
+            )
+            updatedSchedule[dayKey].push(newItem)
+            currentTaskId++
+          }
+        }
+        break
+
+      case 'modify':
+        // Find matching items and update them
+        if (change.match_title && change.item) {
+          updatedSchedule[dayKey] = updatedSchedule[dayKey].map((item) => {
+            if (item.title.toLowerCase().includes(change.match_title!.toLowerCase())) {
+              // Update the item with new properties
+              const startTime12 = formatTime24To12(change.item!.start_time)
+              const endTime12 = formatTime24To12(change.item!.end_time)
+              
+              return {
+                ...item,
+                title: buildTitle(change.item!),
+                time: `${startTime12} - ${endTime12}`,
+                priority: getPriorityForBlockType(change.item!.type),
+              }
+            }
+            return item
+          })
+          }
+        break
+    }
+  }
+      // Sort each day's items by time
+  const dayKeys: Array<keyof ScheduleItems> = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  for (const day of dayKeys) {
+    updatedSchedule[day].sort((a, b) => {
+      if (!a.time) return 1
+      if (!b.time) return -1
+      return a.time.localeCompare(b.time)
+    })
+  }
+
+  return updatedSchedule
 }

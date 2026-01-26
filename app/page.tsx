@@ -402,7 +402,9 @@ export default function ScheduleApp() {
         const response = await fetch('/api/generate-schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({ messages,
+            existingSchedule: scheduleItems
+           }),
         })
 
         console.timeEnd('fetch-api-call')
