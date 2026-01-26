@@ -39,11 +39,13 @@ import {
   formatTime24To12,
   convertTo24Hour,
   validateTaskForm,
+  WSU_SEMESTER
 } from '@/lib/schemas'
 import { useAIChat } from '@/lib/ai-chat-hook'
 import {
   transformAIScheduleToItems,
   mergeScheduleForWeek,
+  applyScheduleChanges,
 } from '@/lib/schedule-transformer'
 import { clearAllStorage } from '@/lib/storage-utils'
 
@@ -418,41 +420,66 @@ export default function ScheduleApp() {
 
         if (data.success && data.schedule) {
           console.time('schedule-processing')
-
+          
           // Get current week dates
           const weekDates = getWeekDates(currentDateObj)
 
-          // Transform AI schedule to ScheduleItems format
+        if (data.schedule.update_type === 'none') {
+          // No update - just exit
+          console.log('✅ No schedule changes detected')
+        } else if (data.schedule.update_type === 'partial') {
+          const updated = applyScheduleChanges(
+            scheduleItems,
+            data.schedule.changes || [],
+            weekDates,
+            nextTaskId,
+            WSU_SEMESTER.current.end
+          )
+          
+          // Count new tasks added
+          const oldTaskCount = Object.values(scheduleItems).flat().length
+          const newTaskCount = Object.values(updated).flat().length
+          const addedTasks = newTaskCount - oldTaskCount
+          
+          updateScheduleItems(() => updated)
+      
+      // Increment task ID for new items
+      for (let i = 0; i < addedTasks; i++) {
+        incrementTaskId()
+      }
+        } else if (data.schedule.update_type === 'full') {
           const transformedSchedule = transformAIScheduleToItems(
-            data.schedule,
+            {
+              weekly_schedule: data.schedule.weekly_schedule || [],
+              schedule_summary: data.schedule.schedule_summary,
+              notes: data.schedule.notes,
+            },
             weekDates,
             nextTaskId
           )
 
-          // Merge with existing schedule (replaces current week)
-          const mergedSchedule = mergeScheduleForWeek(
-            scheduleItems,
-            transformedSchedule,
-            weekDates
-          )
+      const mergedSchedule = mergeScheduleForWeek(
+        scheduleItems,
+        transformedSchedule,
+        weekDates
+      )
 
-          // Update the schedule state
-          updateScheduleItems(() => mergedSchedule)
+      updateScheduleItems(() => mergedSchedule)
 
-          // Update next task ID
-          const totalNewTasks = Object.values(transformedSchedule).flat().length
-          for (let i = 0; i < totalNewTasks; i++) {
-            incrementTaskId()
-          }
+      const totalNewTasks = Object.values(transformedSchedule).flat().length
+      for (let i = 0; i < totalNewTasks; i++) {
+        incrementTaskId()
+      }
+    }
 
-          console.timeEnd('schedule-processing')
-          console.log('✅ Frontend: Schedule processing completed')
-
-          // Mark onboarding as completed after first schedule generation
-          if (!onboardingCompleted) {
-            setOnboardingCompleted(true)
-          }
-        }
+    console.timeEnd('schedule-processing')
+    console.log('✅ Frontend: Schedule processing completed')
+    
+    if (!onboardingCompleted) {
+      setOnboardingCompleted(true)
+    }
+        
+      }
       } catch (error) {
         // Fail silently as requested
         console.error('❌ Frontend: Failed to generate schedule:', error)

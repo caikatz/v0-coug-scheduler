@@ -1,6 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateObject } from 'ai'
-import { AIGeneratedScheduleSchema, ScheduleItems } from '@/lib/schemas'
+import { AIScheduleResponseSchema, ScheduleItems } from '@/lib/schemas'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 
@@ -110,7 +110,7 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
         },
         posthogPrivacyMode: false,
       }),
-      schema: AIGeneratedScheduleSchema,
+      schema: AIScheduleResponseSchema,
       schemaName: 'WeeklySchedule',
       schemaDescription:
         'A structured weekly schedule generated from the coaching conversation',
