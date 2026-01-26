@@ -438,6 +438,7 @@ export const AIScheduleBlockSchema = z.object({
   title: z.string(),
   location: z.string().optional(),
   credits: z.number().optional(),
+  is_recurring: z.boolean()
 })
 
 export const AIDayScheduleSchema = z.object({
@@ -459,8 +460,15 @@ export const AIScheduleSummarySchema = z.object({
 export const AIGeneratedScheduleSchema = z.object({
   schedule_summary: AIScheduleSummarySchema,
   weekly_schedule: z.array(AIDayScheduleSchema),
-  notes: z.array(z.string()),
+  notes: z.array(z.string())
 })
+
+export const WSU_SEMESTER = {
+  current: {
+    start: '2026-01-12',
+    end: '2026-05-08'
+  }
+}
 
 // Type exports for AI schedule
 export type AIScheduleBlock = z.infer<typeof AIScheduleBlockSchema>

@@ -1,8 +1,9 @@
-import type {
+import {
   AIGeneratedSchedule,
   AIScheduleBlock,
   ScheduleItems,
   ScheduleItem,
+  WSU_SEMESTER
 } from './schemas'
 import { formatTime24To12 } from './schemas'
 
@@ -13,7 +14,8 @@ import { formatTime24To12 } from './schemas'
 export function transformAIScheduleToItems(
   aiSchedule: AIGeneratedSchedule,
   weekDates: Date[], // Array of 7 Date objects [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
-  startingTaskId: number
+  startingTaskId: number,
+  semesterEndDate: string = WSU_SEMESTER.current.end
 ): ScheduleItems {
   const scheduleItems: ScheduleItems = {
     Mon: [],
@@ -37,28 +39,65 @@ export function transformAIScheduleToItems(
 
   let currentTaskId = startingTaskId
 
+  const allWeeks = getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
+  allWeeks.pop() // Don't include finals week
+
   // Process each day's schedule
   for (const daySchedule of aiSchedule.weekly_schedule) {
     const dayIndex = dayMap[daySchedule.day]
     if (dayIndex === undefined) continue
 
     const dayKey = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dayIndex]
-    const dateForDay = weekDates[dayIndex]
-    const dueDateString = dateForDay.toISOString().split('T')[0] // YYYY-MM-DD
 
-    // Convert each block to a ScheduleItem
     for (const block of daySchedule.blocks) {
-      const scheduleItem = convertBlockToItem(
+      // Determine which weeks to populate
+      const weeksToPopulate = block.is_recurring ? allWeeks : [weekDates]
+
+      for (const week of weeksToPopulate) {
+        const dateForDay = week[dayIndex]
+        const dueDateString = dateForDay.toISOString().split('T')[0] // YYYY-MM-DD
+
+        const scheduleItem = convertBlockToItem (
         block,
         currentTaskId,
         dueDateString
       )
       scheduleItems[dayKey].push(scheduleItem)
       currentTaskId++
+      }
     }
   }
 
   return scheduleItems
+}
+
+/**
+ * Get all weeks from current week until semester end
+ * Returns array of week arrays (each week is 7 Date objects)
+ */
+function getAllWeeksUntilSemesterEnd(
+  currentWeekDates: Date[],
+  semesterEndDate: string
+): Date[][] {
+  const weeks: Date[][] = []
+  const endDate = new Date(semesterEndDate)
+
+  // Start with current week
+  let weekStart = new Date(currentWeekDates[0])
+  
+  while (weekStart <= endDate) {
+    const week: Date[] = []
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(weekStart)
+      day.setDate(weekStart.getDate() + i)
+    }
+    weeks.push(week)
+
+    // Move to next week
+    weekStart.setDate(weekStart.getDate() + 7)
+  }
+  
+  return weeks
 }
 
 /**
