@@ -234,6 +234,63 @@ export default function ScheduleApp() {
     }
   }
 
+  // Detect when Fred response "Let's get started on your schedule"
+  useEffect(() => {
+    // Only during onboarding, when AI finishes responding, and not already generating
+    if (
+      onboardingCompleted || // Already completed onboarding
+      isLoading || // Still loading
+      isGeneratingSchedule || // Already generating schedule
+      messages.length < 2 // need at least opening message + one response
+    ) {
+      return
+    }
+
+    const lastMessage = messages[messages.length - 1]
+
+    // Check if Fred just finished responding with the completion phrase
+    if (lastMessage?.role === 'assistant') {
+      // Extract message text - handle both 'content' format and 'parts' array format
+      let messageText = ''
+      
+      // Check for content property first
+      if ((lastMessage as { content?: string }).content) {
+        messageText = (lastMessage as { content?: string }).content || ''
+      } 
+      // Otherwise, concatenate all text parts
+      else if (lastMessage.parts && lastMessage.parts.length > 0) {
+        messageText = lastMessage.parts
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join('')
+      }
+
+      if (messageText) {
+        const text = messageText.toLowerCase()
+        
+        // Debug: log last part of message to see if phrase is there
+        const last100Chars = text.slice(-100)
+        console.log('🔍 Last 100 chars of message:', last100Chars)
+        console.log('🔍 Looking for end phrase')
+        
+        // Detect the completion phrase (case-insensitive, with/without period)
+        if (
+          text.includes("let's get started on your schedule") ||
+          text.includes("lets get started on your schedule")
+        ) {
+          console.log('✅ PHRASE DETECTED! Exiting...')
+          
+          // Small delay to ensure message is fully rendered
+          setTimeout(() => {
+            handleBackToMain()
+          }, 2500)
+        }
+      } else {
+        console.log('⚠️ No end phrase found')
+      }
+    }
+  }, [messages, isLoading, onboardingCompleted, isGeneratingSchedule])
+
   function handleSurveyAnswer(answer: string | number[]) {
     const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
 
@@ -815,7 +872,7 @@ export default function ScheduleApp() {
                   <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
                     <Image
                       src="/images/butch-cougar.png"
-                      alt="Butch the Cougar"
+                      alt="Fred the Cougar"
                       width={24}
                       height={24}
                       className="object-contain"
@@ -881,7 +938,7 @@ export default function ScheduleApp() {
                       <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      Butch is thinking...
+                      Fred is thinking...
                     </span>
                   </div>
                 </div>
@@ -901,7 +958,9 @@ export default function ScheduleApp() {
                 placeholder={
                   isLoading
                     ? 'Fred is thinking...'
+
                     : 'Message Fred the Lion...'
+
                 }
                 disabled={isLoading}
                 className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
