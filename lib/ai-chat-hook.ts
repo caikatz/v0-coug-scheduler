@@ -15,7 +15,7 @@ export function useAIChat(
     () => `fred-chat-session-${Date.now()}`
   )
 
-  // When sessionKey changes, generate a new session ID
+  // Update sessionId when sessionKey changes
   useEffect(() => {
     setSessionId(`fred-chat-session-${Date.now()}`)
   }, [sessionKey])
@@ -38,7 +38,6 @@ export function useAIChat(
     if (savedMessages.length > 0) return null // skip if messages exist
 
     if (onboardingCompleted) {
-      // Post-onboarding: casual check-in message
       const greetings = [
         "Hey! How's your schedule been working out for you?",
         'How are your classes going this week?',
@@ -54,7 +53,6 @@ export function useAIChat(
       "Hey! Thanks for taking the time to fill out that survey. I'm Fred, and I'm here to help you build a schedule that actually works for your life."
 
     if (userPreferences) {
-      // Personalize based on survey responses
       const sleepHours = userPreferences.sleepHours
       const productiveHours = userPreferences.productiveHours
 
@@ -63,11 +61,9 @@ export function useAIChat(
       }
 
       if (userPreferences.sleepScheduleWorking === 'Yes') {
-        message +=
-          " It's great that your sleep schedule is working well for you!"
+        message += " It's great that your sleep schedule is working well for you!"
       } else if (userPreferences.sleepScheduleWorking === 'No') {
-        message +=
-          ' I noticed your sleep schedule could use some work - we can definitely factor that in.'
+        message += ' I noticed your sleep schedule could use some work - we can definitely factor that in.'
       }
     }
 
@@ -94,7 +90,7 @@ export function useAIChat(
   const chatOptions = useMemo(
     () => ({
       id: sessionId,
-      messages: initialMessages, // Use messages parameter to set initial messages
+      messages: initialMessages,
       transport: new DefaultChatTransport({
         api: '/api/chat',
         body: {

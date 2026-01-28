@@ -69,6 +69,13 @@ NEXT_GEMINI_API_KEY=your_api_key_here
 ```zsh
 pnpm install
 ```
+## Start docker container to get WSU Course data injected into prompt
+
+The docker image is avalible at https://hub.docker.com/repository/docker/jakekolk/coug-schedule-app/general
+
+This image was build for windows x64, if your using something different you need to make your own and then add the course catalog using the scraper and embedding scripts in the Scrips directory.
+
+Further explanation is commented into the scripts
 
 ## Edit System Prompt
 
