@@ -210,9 +210,24 @@ export default function ScheduleApp() {
 
   // Chat auto-scroll functionality
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [textareaHasOverflow, setTextareaHasOverflow] = useState(false) // UseState that toggles true/false when the send button moves a little when theres mutliple lines
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value)
+
+    // Check if textarea has overflowed to multiple lines
+    // ScrollHeight - Total height of every line in the textbox
+    // ClientHeight - Total VISIBLE height of every line in the textbox
+
+    if (textareaRef.current) {
+      const hasOverflow = textareaRef.current.scrollHeight > textareaRef.current.clientHeight
+      setTextareaHasOverflow(hasOverflow)
+    }
   }
 
   // Auto-scroll when messages change or loading state changes
@@ -952,8 +967,10 @@ export default function ScheduleApp() {
           <div className="flex items-end gap-2">
             <div className="flex flex-1 relative">
               <textarea
+                ref={textareaRef}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                maxLength={300}
+                onChange={handleTextareaInput}
                 onKeyPress={handleKeyPress}
                 placeholder={
                   isLoading
@@ -968,7 +985,7 @@ export default function ScheduleApp() {
                 onClick={handleSendMessage}
                 disabled={!inputText.trim() || isLoading}
                 size="sm"
-                className="absolute right-2 bottom-2 h-8 w-8 p-0 rounded-full"
+                className={`absolute ${textareaHasOverflow ? 'right-5' : 'right-2'} bottom-2 h-8 w-8 p-0 rounded-full`}
               >
                 <Send className="h-4 w-4" />
               </Button>
