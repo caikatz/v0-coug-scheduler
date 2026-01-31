@@ -6,9 +6,9 @@ import { withTracing } from '@posthog/ai'
 
 export const maxDuration = 30
 
-const google = createGoogleGenerativeAI({
-  apiKey: process.env.NEXT_GEMINI_API_KEY,
-})
+//const google = createGoogleGenerativeAI({
+//  apiKey: process.env.NEXT_GEMINI_API_KEY,
+//})
 
 const phClient = new PostHog(
   'phc_I2KRzOerAFE5xbd3DKMHQUIOcLnOQkD4he91kmJYAFT',
