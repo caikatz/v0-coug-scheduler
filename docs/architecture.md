@@ -159,7 +159,6 @@ sequenceDiagram
         useAIChat-->>User: UI re-renders (streaming text)
         Gemini-->>API: Text chunk 2
         API-->>DefaultChatTransport: SSE chunk 2
-        ...
     end
 
     Gemini-->>API: Stream complete
