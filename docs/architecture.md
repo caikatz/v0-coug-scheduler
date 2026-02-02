@@ -129,7 +129,7 @@ There are two distinct flows to Google Gemini; each returns data differently.
 
 ## 7.1. Chat Flow: Streaming Text from Gemini
 
-Chat uses `streamText` — Gemini returns **text chunks over a stream**, not a single JSON blob. The AI SDK pipes this to the frontend as Server-Sent Events.
+Chat uses `streamText` — Gemini returns **text chunks over a stream**. The AI SDK pipes this to the frontend as Server-Sent Events.
 
 ```mermaid
 sequenceDiagram
