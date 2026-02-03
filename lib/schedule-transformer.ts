@@ -44,7 +44,7 @@ export function transformAIScheduleToItems(
   allWeeks.pop() // Don't include finals week
 
   // Process each day's schedule
-  for (const daySchedule of aiSchedule.weekly_schedule) {
+  for (const daySchedule of aiSchedule.weekly_schedule || []) {
     const dayIndex = dayMap[daySchedule.day]
     if (dayIndex === undefined) continue
 

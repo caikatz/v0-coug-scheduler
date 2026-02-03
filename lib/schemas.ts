@@ -457,11 +457,7 @@ export const AIScheduleSummarySchema = z.object({
   buffer_hours: z.number(),
 })
 
-export const AIGeneratedScheduleSchema = z.object({
-  schedule_summary: AIScheduleSummarySchema,
-  weekly_schedule: z.array(AIDayScheduleSchema),
-  notes: z.array(z.string())
-})
+
 
 export const ScheduleUpdateTypeSchema = z.enum(['none', 'partial', 'full'])
 
@@ -472,15 +468,16 @@ export const ScheduleChangeSchema = z.object({
   match_title: z.string().optional(), // For remove/modify - indentifies which item
 })
 
-export const AIScheduleResponseSchema = z.object({
+export const AIGeneratedScheduleSchema = z.object({
   update_type: ScheduleUpdateTypeSchema,
   // For 'full' update - complete new schedule
   weekly_schedule: z.array(AIDayScheduleSchema).optional(),
-  // For 'parial' update - list of changes
+  // For 'partial' update - list of changes
   changes: z.array(ScheduleChangeSchema).optional(),
   schedule_summary: AIScheduleSummarySchema,
   notes: z.array(z.string()),
 })
+
 
 export const WSU_SEMESTER = {
   current: {

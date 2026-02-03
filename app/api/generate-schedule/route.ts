@@ -1,6 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateObject } from 'ai'
-import { AIScheduleResponseSchema, ScheduleItems } from '@/lib/schemas'
+import { AIGeneratedScheduleSchema, ScheduleItems } from '@/lib/schemas'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 
@@ -77,8 +77,8 @@ FORMATTING RULES:
 4. Ensure all time blocks don't overlap within a day
 5. If the student mentioned an activity but not a specific time, make a reasonable assumption based on context
 6. Use the exact names and descriptions provided by the student
-7. Determine if each item is recurring or not for is_recurring. TRUE: Classes, weekly work shifts, recurring meetings, regular gym sessions, etc.; FALSE: Specific assignment due dates, one-time events, single appointments
 
+Determine if each item is recurring or not for is_recurring. TRUE: Classes, weekly work shifts, recurring meetings, regular gym sessions, etc.; FALSE: Specific assignment due dates, one-time events, single appointments
 
 EXISTING SCHEDULE:
 ${existingSchedule ? JSON.stringify(existingSchedule, null, 2) : 'No existing schedule'}
@@ -110,7 +110,7 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
         },
         posthogPrivacyMode: false,
       }),
-      schema: AIScheduleResponseSchema,
+      schema: AIGeneratedScheduleSchema,
       schemaName: 'WeeklySchedule',
       schemaDescription:
         'A structured weekly schedule generated from the coaching conversation',
@@ -125,6 +125,7 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
     console.timeEnd('ai-api-call')
     console.log('✅ AI generation completed')
     console.log('📋 Generated schedule object keys:', Object.keys(object))
+    console.log('📌 Generated update_type:', object.update_type)
 
     console.timeEnd('schedule-generation-total')
     console.log('🏁 Schedule generation finished at:', new Date().toISOString())

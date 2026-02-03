@@ -450,6 +450,7 @@ export default function ScheduleApp() {
         } else if (data.schedule.update_type === 'full') {
           const transformedSchedule = transformAIScheduleToItems(
             {
+              update_type: data.schedule.update_type,
               weekly_schedule: data.schedule.weekly_schedule || [],
               schedule_summary: data.schedule.schedule_summary,
               notes: data.schedule.notes,
@@ -458,15 +459,10 @@ export default function ScheduleApp() {
             nextTaskId
           )
 
-      const mergedSchedule = mergeScheduleForWeek(
-        scheduleItems,
-        transformedSchedule,
-        weekDates
-      )
+          // Full overhaul: replace previous schedule entirely
+          updateScheduleItems(() => transformedSchedule)
 
-      updateScheduleItems(() => mergedSchedule)
-
-      const totalNewTasks = Object.values(transformedSchedule).flat().length
+          const totalNewTasks = Object.values(transformedSchedule).flat().length
       for (let i = 0; i < totalNewTasks; i++) {
         incrementTaskId()
       }
