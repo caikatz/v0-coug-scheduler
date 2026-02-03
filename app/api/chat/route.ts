@@ -3,13 +3,13 @@ import { streamText, convertToModelMessages, type UIMessage } from 'ai'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
-import { findRelevantCourses } from '@/lib/courseSearch'
-import { formatCoursesForPrompt } from '@/lib/formatCourses'
+import { findRelevantCourses } from '@/app/api/vector-encoding/course-search'
+import { formatCoursesForPrompt } from '@/app/api/vector-encoding/format-courses'
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30
 
-// Create Google AI provider with custom API key
+//Create Google AI provider with custom API key
 const google = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_GEMINI_API_KEY,
 })
