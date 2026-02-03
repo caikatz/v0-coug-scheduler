@@ -77,8 +77,7 @@ FORMATTING RULES:
 4. Ensure all time blocks don't overlap within a day
 5. If the student mentioned an activity but not a specific time, make a reasonable assumption based on context
 6. Use the exact names and descriptions provided by the student
-
-Determine if each item is recurring or not for is_recurring. TRUE: Classes, weekly work shifts, recurring meetings, regular gym sessions, etc.; FALSE: Specific assignment due dates, one-time events, single appointments
+7. Determine if each item is recurring or not for is_recurring. TRUE: Classes, weekly work shifts, recurring meetings, regular gym sessions, etc.; FALSE: Specific assignment due dates, one-time events, single appointments
 
 EXISTING SCHEDULE:
 ${existingSchedule ? JSON.stringify(existingSchedule, null, 2) : 'No existing schedule'}
