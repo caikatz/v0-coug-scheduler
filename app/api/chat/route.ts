@@ -3,11 +3,13 @@ import { streamText, convertToModelMessages, type UIMessage } from 'ai'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
+import { findRelevantCourses } from '@/app/api/vector-encoding/course-search'
+import { formatCoursesForPrompt } from '@/app/api/vector-encoding/format-courses'
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30
 
-// Create Google AI provider with custom API key
+//Create Google AI provider with custom API key
 const google = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_GEMINI_API_KEY,
 })
@@ -453,6 +455,23 @@ export async function POST(req: Request) {
     onboardingCompleted,
   }: ChatRequestBody = await req.json()
 
+  const lastUserMessage = messages
+  .filter((m) => m.role === 'user')
+  .at(-1)
+  ?.parts?.[0]?.text
+
+let courseContext = ''
+if (lastUserMessage) {
+  try {
+    const courses = await findRelevantCourses(lastUserMessage, 3)
+    if (courses.length > 0) {
+      courseContext = formatCoursesForPrompt(courses)
+    }
+  } catch (error) {
+    console.error('Failed to fetch relevant courses:', error)
+  }
+}
+
   // Convert messages to the format expected by AI SDK using the built-in converter
   const coreMessages = convertToModelMessages(messages)
 
@@ -492,10 +511,20 @@ export async function POST(req: Request) {
     })
   }
 
-  const systemPrompt = onboardingCompleted
+  const basePrompt = onboardingCompleted
     ? createPostOnboardingPrompt(contextInfo)
     : createOnboardingPrompt(contextInfo)
 
+  const systemPrompt = `
+  ${basePrompt}
+
+  ${courseContext}
+
+  IMPORTANT RULES ABOUT COURSES:
+  - Use ONLY the official course information above
+  - Do NOT invent course names, credits, or requirements
+  - If no course information is provided, say you don’t have enough data
+  `
   // Generate streaming response using Gemini Flash 2.5
   const result = streamText({
     model: withTracing(google('gemini-2.5-flash'), phClient, {
