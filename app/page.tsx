@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 
 // Import Zod types and persistence hooks
-import type { TaskForm, ScheduleItem } from '@/lib/schemas'
+import type { TaskForm, ScheduleItem, ScheduleItems } from '@/lib/schemas'
 import {
   useSurveyState,
   useScheduleState,
@@ -190,6 +190,8 @@ export default function ScheduleApp() {
   const [showTaskEditor, setShowTaskEditor] = useState(false)
   const [viewMode, setViewMode] = useState<'cards' | 'todo'>('cards')
   const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false)
+  const [expandedCalendar, setExpandedCalendar] = useState(false)
+  const [isUpdatingCalendar, setIsUpdatingCalendar] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>({
     name: '',
     startTime: '',
@@ -306,6 +308,86 @@ export default function ScheduleApp() {
     }
   }, [messages, isLoading, onboardingCompleted, isGeneratingSchedule])
 
+  // Live update chat calendar as Fred suggests schedule items
+  useEffect(() => {
+    // Only if in chat view, there are messages, and AI just finished responding
+    if (currentView !== 'chat' || messages.length < 2) {
+      return
+    }
+
+    // Check if the last message is from the assistant (Fred just finished responding)
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage || lastMessage.role !== 'assistant') {
+      return
+    }
+
+    // Only trigger when AI is done responding (not while loading)
+    if (isLoading) {
+      return
+    }
+
+    // Debounce the schedule generation to avoid excessive API calls
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log('🔄 Live calendar update triggered - Fred just responded')
+        setIsUpdatingCalendar(true)
+        
+        // Call generate-schedule API to get latest schedule
+        const response = await fetch('/api/generate-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages }),
+        })
+
+        const data = await response.json()
+
+        if (data.success && data.schedule) {
+          console.log('✅ Schedule data received, updating calendar')
+          
+          // Get current week dates
+          const weekDates = getWeekDates(currentDateObj)
+
+          // Transform AI schedule to ScheduleItems format
+          const transformedSchedule = transformAIScheduleToItems(
+            data.schedule,
+            weekDates,
+            nextTaskId
+          )
+
+          // Merge with existing schedule (deduplicates automatically)
+          const mergedSchedule = mergeScheduleForWeek(
+            scheduleItems,
+            transformedSchedule,
+            weekDates
+          )
+
+          // Check for overlaps before updating
+          const { hasOverlap, conflicts } = detectOverlaps(mergedSchedule)
+          
+          if (hasOverlap) {
+            console.warn('⚠️ CRITICAL OVERLAP DETECTED! Calendar will NOT be updated:')
+            conflicts.forEach(conflict => console.warn('  - ' + conflict))
+            // Do not update the schedule - reject the changes
+            return
+          }
+
+          // Update the schedule state (triggers calendar re-render)
+          updateScheduleItems(() => mergedSchedule)
+          console.log('📅 Chat calendar updated with new schedule items')
+        } else {
+          console.log('⚠️ No schedule data in response')
+        }
+      } catch (error) {
+        // Silently fail for live updates
+        console.debug('Failed to update chat calendar:', error)
+      } finally {
+        setIsUpdatingCalendar(false)
+      }
+    }, 300) // Fast debounce - only 300ms delay after Fred responds
+
+    return () => clearTimeout(timeoutId)
+  }, [messages, currentView, isLoading])
+
   function handleSurveyAnswer(answer: string | number[]) {
     const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
 
@@ -383,6 +465,65 @@ export default function ScheduleApp() {
       week.push(weekDate)
     }
     return week
+  }
+
+  // Check for time overlaps between schedule items
+  function detectOverlaps(schedule: ScheduleItems): { hasOverlap: boolean; conflicts: string[] } {
+    const conflicts: string[] = []
+    const days: Array<keyof ScheduleItems> = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+    for (const day of days) {
+      const dayItems = schedule[day] || []
+      
+      // Check each item against every other item on the same day
+      for (let i = 0; i < dayItems.length; i++) {
+        for (let j = i + 1; j < dayItems.length; j++) {
+          const item1 = dayItems[i]
+          const item2 = dayItems[j]
+          
+          // Skip items without time ranges
+          if (!item1.time || !item2.time) continue
+          
+          // Parse time ranges (format: "1:00 PM - 2:00 PM")
+          const parseTime = (timeStr: string) => {
+            const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/)
+            if (!match) return null
+            let hours = parseInt(match[1])
+            const minutes = parseInt(match[2])
+            const period = match[3]
+            
+            if (period === 'PM' && hours !== 12) hours += 12
+            if (period === 'AM' && hours === 12) hours = 0
+            
+            return hours * 60 + minutes // Return minutes since midnight
+          }
+          
+          const item1Times = item1.time.split(' - ')
+          const item2Times = item2.time.split(' - ')
+          
+          const item1Start = parseTime(item1Times[0])
+          const item1End = parseTime(item1Times[1])
+          const item2Start = parseTime(item2Times[0])
+          const item2End = parseTime(item2Times[1])
+          
+          if (!item1Start || !item1End || !item2Start || !item2End) continue
+          
+          // Check for overlap: items overlap if one starts before the other ends
+          const hasOverlap = (
+            (item1Start < item2End && item1End > item2Start) ||
+            (item2Start < item1End && item2End > item1Start)
+          )
+          
+          if (hasOverlap) {
+            conflicts.push(
+              `${String(day)}: "${item1.title}" (${item1.time}) overlaps with "${item2.title}" (${item2.time})`
+            )
+          }
+        }
+      }
+    }
+
+    return { hasOverlap: conflicts.length > 0, conflicts }
   }
 
   function navigateWeek(direction: 'prev' | 'next') {
@@ -734,7 +875,7 @@ export default function ScheduleApp() {
                   step={currentQuestion.step || 1}
                   className="w-full"
                 />
-                <div className="flex justify-between text-sm text-muted-foreground">
+                <div className="flex justify-between text-bg text-muted-foreground">
                   {currentQuestion.labels?.map((label, idx) => (
                     <span key={idx}>{label}</span>
                   ))}
@@ -808,7 +949,7 @@ export default function ScheduleApp() {
                   <Button
                     key={index}
                     variant="outline"
-                    className="w-full text-left justify-start h-auto p-4 hover:bg-primary/10 hover:border-primary transition-all bg-transparent"
+                    className=" whitespace-normal w-full text-left justify-start h-auto p-4 hover:bg-primary/10 hover:border-primary transition-all bg-transparent"
                     onClick={() => handleSurveyAnswer(option)}
                   >
                     {option}
@@ -872,7 +1013,91 @@ export default function ScheduleApp() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+        {/* Chat Calendar - Live schedule preview - Expandable */}
+        <div className={`border-b border-border/50 bg-muted/20 flex flex-col ${expandedCalendar ? 'flex-1' : 'flex-shrink-0'}`} style={expandedCalendar ? { height: 'auto' } : { maxHeight: '30vh' }}>
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">This Week's Schedule</h3>
+              {isUpdatingCalendar && (
+                <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpandedCalendar(!expandedCalendar)}
+              className="h-6 w-6 p-0"
+            >
+              <ChevronRight className={`h-4 w-4 transition-transform ${expandedCalendar ? 'rotate-90' : ''}`} />
+            </Button>
+          </div>
+          <div className="px-3 pb-3 overflow-y-auto flex-1" style={expandedCalendar ? {} : { maxHeight: 'calc(30vh - 2.5rem)' }}>
+            <div className="grid grid-cols-7 gap-1 text-xs">
+              {DAYS.map((day, index) => {
+                const daySchedule = scheduleItems[day] || []
+                const todayDate = new Date()
+                const currentDayOfWeek = (todayDate.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
+                const isToday = index === currentDayOfWeek
+                
+                return (
+                  <div key={day} className={`flex flex-col gap-1 ${isToday ? 'bg-primary/10 rounded-lg p-1' : ''}`}>
+                    <div className={`font-semibold text-center pb-1 border-b ${isToday ? 'border-primary text-primary' : 'border-border/30 text-foreground'}`}>
+                      {day}
+                    </div>
+                    <div className="space-y-1 pt-1">
+                      {daySchedule.length === 0 ? (
+                        <div className="text-muted-foreground/50 text-center py-2">-</div>
+                      ) : expandedCalendar ? (
+                        // Show all items when expanded
+                        daySchedule.map((item) => (
+                          <div
+                            key={item.id}
+                            className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
+                            title={`${item.title}\n${item.time || 'No time set'}`}
+                          >
+                            <div className="font-medium text-[10px] leading-tight break-words">
+                              {item.title}
+                            </div>
+                            {item.time && (
+                              <div className="text-muted-foreground text-[9px] leading-tight mt-0.5">
+                                {item.time}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        // Show first 4 items when collapsed
+                        daySchedule.slice(0, 4).map((item) => (
+                          <div
+                            key={item.id}
+                            className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
+                            title={`${item.title}\n${item.time || 'No time set'}`}
+                          >
+                            <div className="font-medium truncate text-[10px] leading-tight">
+                              {item.title}
+                            </div>
+                            {item.time && (
+                              <div className="text-muted-foreground text-[9px] truncate leading-tight mt-0.5">
+                                {item.time.split(' - ')[0]}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                      {!expandedCalendar && daySchedule.length > 4 && (
+                        <div className="text-muted-foreground/70 text-center text-[9px] pt-1">
+                          +{daySchedule.length - 4} more
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className={`${expandedCalendar ? 'hidden' : 'flex-1'} overflow-y-auto p-4 space-y-4 min-h-0`}>
           {messages.map((message) => (
             <div
               key={message.id}
