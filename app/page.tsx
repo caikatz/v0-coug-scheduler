@@ -47,7 +47,9 @@ import {
   formatTime24To12,
   convertTo24Hour,
   validateTaskForm,
-  WSU_SEMESTER
+  WSU_SEMESTER,
+  expandRecurringTasks,
+  type RepeatType,
 } from '@/lib/schemas'
 import { useAIChat } from '@/lib/ai-chat-hook'
 import {
@@ -214,6 +216,8 @@ export default function ScheduleApp() {
     endTime: '',
     dueDate: '',
     priority: 'medium',
+    repeatType: 'never',
+    repeatDays: [],
   })
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [taskFormErrors, setTaskFormErrors] = useState<string[]>([])
@@ -407,6 +411,10 @@ export default function ScheduleApp() {
     return week
   }
 
+  function formatDateLocal(d: Date): string {
+    return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+  }
+
   function navigateWeek(direction: 'prev' | 'next') {
     const currentDateObj = new Date(currentDate)
     const newDate = new Date(currentDateObj)
@@ -587,12 +595,19 @@ export default function ScheduleApp() {
       }
     }
 
+    const taskWithRepeat = task as ScheduleItem & {
+      repeatType?: RepeatType
+      repeatDays?: number[]
+      repeatGroupId?: number
+    }
     setTaskForm({
       name: task.title,
       startTime,
       endTime,
       dueDate: task.dueDate || '',
       priority: task.priority,
+      repeatType: taskWithRepeat.repeatType ?? 'never',
+      repeatDays: taskWithRepeat.repeatDays ?? [],
     })
     setShowTaskEditor(true)
   }
@@ -602,75 +617,63 @@ export default function ScheduleApp() {
     const validation = validateTaskForm(taskForm)
     if (!validation.success) {
       setTaskFormErrors(validation.errors)
-      return // Don't save if there are validation errors
+      return
     }
 
-    // Clear any previous errors
     setTaskFormErrors([])
 
-    const dayKey = DAYS[selectedDay]
-    const hasTimeRange = taskForm.startTime && taskForm.endTime
+    const editingTaskWithRepeat = editingTask as ScheduleItem & {
+      repeatGroupId?: number
+    }
 
     if (editingTask) {
-      // Update existing task
-      updateScheduleItems((items) => ({
-        ...items,
-        [dayKey]:
-          items[dayKey]?.map((task) => {
-            if (task.id === editingTask.id) {
-              const updatedTask: ScheduleItem = {
-                ...task,
-                title: taskForm.name,
-                priority: taskForm.priority as 'high' | 'medium' | 'low',
-              }
+      const repeatGroupId = editingTaskWithRepeat.repeatGroupId
+      const idsToRemove = repeatGroupId
+        ? (() => {
+            const ids: number[] = []
+            DAYS.forEach((day) => {
+              (scheduleItems[day] || []).forEach((item) => {
+                const ir = item as ScheduleItem & { repeatGroupId?: number }
+                if (ir.repeatGroupId === repeatGroupId) ids.push(ir.id)
+              })
+            })
+            return ids
+          })()
+        : [editingTask.id]
 
-              if (hasTimeRange) {
-                const startTime12 = formatTime24To12(taskForm.startTime!)
-                const endTime12 = formatTime24To12(taskForm.endTime!)
-                updatedTask.time = `${startTime12} - ${endTime12}`
-              } else {
-                // Remove time field if no times provided
-                delete updatedTask.time
-              }
-
-              // Save due date if provided
-              if (taskForm.dueDate) {
-                updatedTask.dueDate = taskForm.dueDate
-              } else {
-                delete updatedTask.dueDate
-              }
-
-              return updatedTask
-            }
-            return task
-          }) || [],
-      }))
+      updateScheduleItems((items) => {
+        let result = { ...items }
+        DAYS.forEach((day) => {
+          result[day] = (result[day] || []).filter(
+            (item) => !idsToRemove.includes(item.id)
+          )
+        })
+        const { itemsByDay, nextId } = expandRecurringTasks(
+          { ...taskForm, dueDate: taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay]) },
+          nextTaskId,
+          WSU_SEMESTER.current.end
+        )
+        DAYS.forEach((day) => {
+          result[day] = [...(result[day] || []), ...itemsByDay[day]]
+        })
+        setNextTaskId(nextId)
+        return result
+      })
     } else {
-      // Add new task
-      const newTask: ScheduleItem = {
-        id: nextTaskId,
-        title: taskForm.name,
-        priority: taskForm.priority as 'high' | 'medium' | 'low',
-        completed: false,
-      }
-
-      if (hasTimeRange) {
-        const startTime12 = formatTime24To12(taskForm.startTime!)
-        const endTime12 = formatTime24To12(taskForm.endTime!)
-        newTask.time = `${startTime12} - ${endTime12}`
-      }
-
-      // Save due date if provided
-      if (taskForm.dueDate) {
-        newTask.dueDate = taskForm.dueDate
-      }
-
-      updateScheduleItems((items) => ({
-        ...items,
-        [dayKey]: [...(items[dayKey] || []), newTask],
-      }))
-
-      incrementTaskId()
+      const dueDate = taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay])
+      const { itemsByDay, nextId } = expandRecurringTasks(
+        { ...taskForm, dueDate },
+        nextTaskId,
+        WSU_SEMESTER.current.end
+      )
+      updateScheduleItems((items) => {
+        const result = { ...items }
+        DAYS.forEach((day) => {
+          result[day] = [...(result[day] || []), ...itemsByDay[day]]
+        })
+        return result
+      })
+      setNextTaskId(nextId)
     }
 
     setShowTaskEditor(false)
@@ -682,6 +685,8 @@ export default function ScheduleApp() {
       endTime: '',
       dueDate: '',
       priority: 'medium',
+      repeatType: 'never',
+      repeatDays: [],
     })
   }
 
@@ -766,7 +771,7 @@ export default function ScheduleApp() {
   // Filter tasks to only show those that match the current week's dates
   const weekDates = getWeekDates(currentDateObj)
   const currentSelectedDate = weekDates[selectedDay]
-  const currentDateString = currentSelectedDate.toISOString().split('T')[0] // YYYY-MM-DD format
+  const currentDateString = formatDateLocal(currentSelectedDate)
 
   const currentScheduleItems = (scheduleItems[DAYS[selectedDay]] || []).filter(
     (item) => {
@@ -1237,6 +1242,70 @@ export default function ScheduleApp() {
             />
           </div>
 
+          <div>
+            <label className="text-sm font-medium text-foreground mb-2 block">
+              Repeat
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(['never', 'daily', 'weekly', 'monthly', 'custom'] as const).map(
+                (type) => (
+                  <Button
+                    key={type}
+                    variant={
+                      (taskForm.repeatType ?? 'never') === type
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setTaskForm((prev) => ({
+                        ...prev,
+                        repeatType: type,
+                        repeatDays: type === 'custom' ? prev.repeatDays ?? [] : undefined,
+                      }))
+                    }
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Button>
+                )
+              )}
+            </div>
+            {(taskForm.repeatType ?? 'never') === 'custom' && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    [0, 'Sun'],
+                    [1, 'Mon'],
+                    [2, 'Tue'],
+                    [3, 'Wed'],
+                    [4, 'Thu'],
+                    [5, 'Fri'],
+                    [6, 'Sat'],
+                  ] as const
+                ).map(([dayNum, label]) => (
+                  <Button
+                    key={dayNum}
+                    variant={
+                      (taskForm.repeatDays ?? []).includes(dayNum)
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    onClick={() => {
+                      const current = taskForm.repeatDays ?? []
+                      const next = current.includes(dayNum)
+                        ? current.filter((d) => d !== dayNum)
+                        : [...current, dayNum].sort((a, b) => a - b)
+                      setTaskForm((prev) => ({ ...prev, repeatDays: next }))
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3 pt-4">
             <Button
               variant="outline"
@@ -1457,7 +1526,7 @@ export default function ScheduleApp() {
             const date = weekDates[index]
             const isSelected = selectedDay === index
             const isToday = date.toDateString() === new Date().toDateString()
-            const dateString = date.toISOString().split('T')[0] // YYYY-MM-DD format
+            const dateString = formatDateLocal(date)
 
             // Filter tasks for this specific date, same logic as task display
             const dayTasks = (scheduleItems[day] || []).filter((item) => {
@@ -1647,6 +1716,8 @@ export default function ScheduleApp() {
                 endTime: '',
                 dueDate: '',
                 priority: 'medium',
+                repeatType: 'never',
+                repeatDays: [],
               })
               setShowTaskEditor(true)
             }}

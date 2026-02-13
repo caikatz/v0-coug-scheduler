@@ -80,6 +80,16 @@ export const UserPreferencesSchema = z.object({
   reminderType: z.string(),
 })
 
+// Repeat type for recurring tasks
+export const RepeatTypeSchema = z.enum([
+  'never',
+  'daily',
+  'weekly',
+  'monthly',
+  'custom',
+])
+export type RepeatType = z.infer<typeof RepeatTypeSchema>
+
 // Task form for creating/editing tasks with validation
 export const TaskFormSchema = z
   .object({
@@ -103,6 +113,8 @@ export const TaskFormSchema = z
       ),
     dueDate: z.string().optional(),
     priority: PrioritySchema,
+    repeatType: RepeatTypeSchema.default('never'),
+    repeatDays: z.array(z.number().min(0).max(6)).optional(), // 0=Sun, 1=Mon, ..., 6=Sat
   })
   .refine(
     (data) => {
@@ -114,6 +126,21 @@ export const TaskFormSchema = z
     {
       message: 'End time must be after start time',
       path: ['endTime'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.repeatType === 'custom') {
+        return (
+          data.repeatDays &&
+          data.repeatDays.length > 0
+        )
+      }
+      return true
+    },
+    {
+      message: 'Select at least one day for custom repeat',
+      path: ['repeatDays'],
     }
   )
 
@@ -133,6 +160,9 @@ export const ScheduleItemSchema = z.object({
   completed: z.boolean(),
   source: z.enum(['ical']).optional(), // 'ical' when imported from ICS feed
   icalUid: z.string().optional(), // UID from ICS for deduplication
+  repeatType: RepeatTypeSchema.optional(),
+  repeatDays: z.array(z.number().min(0).max(6)).optional(),
+  repeatGroupId: z.number().optional(), // links occurrences of same recurring task
 })
 
 // Chat message with validation
@@ -391,6 +421,120 @@ export function createNewTask(
   }
 
   return scheduleItem
+}
+
+/** Map getDay() (0=Sun, 1=Mon, ...) to our day keys */
+const GET_DAY_KEY: Record<number, (typeof DAYS)[number]> = {
+  0: 'Sun',
+  1: 'Mon',
+  2: 'Tue',
+  3: 'Wed',
+  4: 'Thu',
+  5: 'Fri',
+  6: 'Sat',
+}
+
+/** Parse YYYY-MM-DD as local date and return day key (avoids UTC parse bugs) */
+function dateStringToDayKey(dateStr: string): (typeof DAYS)[number] {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const localDate = new Date(y, (m ?? 1) - 1, d ?? 1)
+  return GET_DAY_KEY[localDate.getDay()] ?? 'Mon'
+}
+
+/**
+ * Expand a recurring task into multiple ScheduleItems.
+ * Returns items grouped by day key for merging into schedule.
+ */
+export function expandRecurringTasks(
+  taskForm: TaskForm,
+  nextTaskId: number,
+  semesterEndDate: string
+): { itemsByDay: ScheduleItems; nextId: number } {
+  const baseItem = createNewTask(taskForm, nextTaskId)
+  const startDateStr = taskForm.dueDate
+  const repeatType = taskForm.repeatType ?? 'never'
+  const repeatDays = taskForm.repeatDays ?? []
+
+  const itemsByDay: ScheduleItems = {
+    Mon: [],
+    Tue: [],
+    Wed: [],
+    Thu: [],
+    Fri: [],
+    Sat: [],
+    Sun: [],
+  }
+
+  if (!startDateStr || repeatType === 'never') {
+    let dueDateStr: string
+    let dayKey: (typeof DAYS)[number]
+    if (startDateStr) {
+      dueDateStr = startDateStr
+      dayKey = dateStringToDayKey(startDateStr)
+    } else {
+      const now = new Date()
+      dueDateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
+      dayKey = GET_DAY_KEY[now.getDay()] ?? 'Mon'
+    }
+    const item: ScheduleItem = {
+      ...baseItem,
+      dueDate: dueDateStr,
+    }
+    itemsByDay[dayKey].push(item)
+    return { itemsByDay, nextId: nextTaskId + 1 }
+  }
+
+  const [sy, sm, sd] = startDateStr.split('-').map(Number)
+  const startDate = new Date(sy, sm - 1, sd)
+  const [ey, em, ed] = semesterEndDate.split('-').map(Number)
+  const endDate = new Date(ey, em - 1, ed)
+  if (startDate > endDate) return { itemsByDay, nextId: nextTaskId }
+
+  const repeatGroupId = nextTaskId
+  let currentId = nextTaskId
+
+  const addItemForDate = (date: Date) => {
+    const dueDateStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`
+    const dayKey = GET_DAY_KEY[date.getDay()] ?? 'Mon'
+    const item: ScheduleItem & { repeatType?: string; repeatDays?: number[]; repeatGroupId?: number } = {
+      ...baseItem,
+      id: currentId,
+      dueDate: dueDateStr,
+      repeatType,
+      repeatDays: repeatDays.length > 0 ? repeatDays : undefined,
+      repeatGroupId,
+    }
+    itemsByDay[dayKey].push(item)
+    currentId++
+  }
+
+  if (repeatType === 'daily') {
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      addItemForDate(new Date(d))
+    }
+  } else if (repeatType === 'weekly') {
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 7)) {
+      addItemForDate(new Date(d))
+    }
+  } else if (repeatType === 'monthly') {
+    const dayOfMonth = startDate.getDate()
+    let d = new Date(startDate)
+    while (d <= endDate) {
+      addItemForDate(new Date(d))
+      const nextMonth = d.getMonth() + 1
+      const lastDayOfNext = new Date(d.getFullYear(), nextMonth + 1, 0).getDate()
+      d = new Date(d.getFullYear(), nextMonth, Math.min(dayOfMonth, lastDayOfNext))
+    }
+  } else if (repeatType === 'custom' && repeatDays.length > 0) {
+    const selectedDaysSet = new Set(repeatDays)
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      if (selectedDaysSet.has(d.getDay())) {
+        addItemForDate(new Date(d))
+      }
+    }
+  }
+
+  return { itemsByDay, nextId: currentId }
 }
 
 export function updateTaskCompletion(
