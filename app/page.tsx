@@ -261,6 +261,74 @@ export default function ScheduleApp() {
     scrollToBottom()
   }, [messages, isLoading])
 
+  // Daily ICS calendar refresh - syncs every 24 hours when ICS URLs are configured
+  const scheduleItemsRef = useRef(scheduleItems)
+  const nextTaskIdRef = useRef(nextTaskId)
+  const icsUrlsRef = useRef(icsUrls)
+  scheduleItemsRef.current = scheduleItems
+  nextTaskIdRef.current = nextTaskId
+  icsUrlsRef.current = icsUrls
+
+  useEffect(() => {
+    if (icsUrls.length === 0) return
+
+    const runBackgroundSync = async () => {
+      const urls = icsUrlsRef.current
+      if (urls.length === 0) return
+      try {
+        let currentSchedule = { ...scheduleItemsRef.current }
+        let currentNextId = nextTaskIdRef.current
+        for (const url of urls) {
+          const res = await fetch('/api/fetch-ics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          })
+          const data = await res.json()
+          if (!data.success) return
+          const events = (data.events || []).map(
+            (e: {
+              uid: string
+              title: string
+              start: string
+              end: string
+              isAllDay: boolean
+              location?: string
+            }) =>
+              ({
+                ...e,
+                start: new Date(e.start),
+                end: new Date(e.end),
+              }) as ICalEvent
+          )
+          const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
+            events,
+            currentSchedule,
+            currentNextId,
+            WSU_SEMESTER.current.end,
+            url
+          )
+          currentSchedule = merged
+          currentNextId = nextId
+        }
+        setScheduleState((prev) => ({
+          ...prev,
+          scheduleItems: currentSchedule,
+          nextTaskId: currentNextId,
+        }))
+      } catch {
+        // Silent fail for background sync
+      }
+    }
+
+    const DAILY_MS = 24 * 60 * 60 * 1000
+
+    runBackgroundSync()
+
+    const intervalId = setInterval(runBackgroundSync, DAILY_MS)
+    return () => clearInterval(intervalId)
+  }, [icsUrls.length, setScheduleState])
+
   // Helper to convert slider value to hour string
   function sliderToHourString(value: number, questionId: number): string {
     if (questionId === 1) {
@@ -711,6 +779,20 @@ export default function ScheduleApp() {
     setIcsInputValue('')
   }
 
+  function handleRemoveCalendarUrl(url: string) {
+    removeCalendarUrl(url)
+    updateScheduleItems((items) => {
+      const result = { ...items }
+      DAYS.forEach((day) => {
+        result[day] = (result[day] || []).filter(
+          (item) =>
+            (item as ScheduleItem & { icalUrl?: string }).icalUrl !== url
+        )
+      })
+      return result
+    })
+  }
+
   async function handleSyncCalendar() {
     if (icsUrls.length === 0) {
       setCalendarSyncError('Add at least one calendar URL first')
@@ -719,7 +801,8 @@ export default function ScheduleApp() {
     setCalendarSyncError(null)
     setIsSyncingCalendar(true)
     try {
-      let allEvents: ICalEvent[] = []
+      let currentSchedule = { ...scheduleItems }
+      let currentNextId = nextTaskId
       for (const url of icsUrls) {
         const res = await fetch('/api/fetch-ics', {
           method: 'POST',
@@ -745,18 +828,20 @@ export default function ScheduleApp() {
               end: new Date(e.end),
             }) as ICalEvent
         )
-        allEvents = allEvents.concat(events)
+        const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
+          events,
+          currentSchedule,
+          currentNextId,
+          WSU_SEMESTER.current.end,
+          url
+        )
+        currentSchedule = merged
+        currentNextId = nextId
       }
-      const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
-        allEvents,
-        scheduleItems,
-        nextTaskId,
-        WSU_SEMESTER.current.end
-      )
       setScheduleState((prev) => ({
         ...prev,
-        scheduleItems: merged,
-        nextTaskId: nextId,
+        scheduleItems: currentSchedule,
+        nextTaskId: currentNextId,
       }))
       setShowCalendarDialog(false)
     } catch (err) {
@@ -1424,7 +1509,7 @@ export default function ScheduleApp() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeCalendarUrl(url)}
+                            onClick={() => handleRemoveCalendarUrl(url)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>

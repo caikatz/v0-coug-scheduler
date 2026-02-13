@@ -167,13 +167,14 @@ function parseICSTimestamp(value: string): Date {
 /**
  * Convert parsed ICS events to ScheduleItems and merge with existing schedule.
  * Events are keyed by day (Mon-Sun) and dueDate for date-specific display.
- * ICS-sourced items get source: 'ical' and icalUid for deduplication.
+ * ICS-sourced items get source: 'ical', icalUid, and icalUrl (for per-feed removal).
  */
 export function icalEventsToScheduleItems(
   events: ICalEvent[],
   existingSchedule: Record<string, ScheduleItem[]>,
   nextTaskId: number,
-  semesterEndDate: string
+  semesterEndDate: string,
+  sourceUrl?: string
 ): { scheduleItems: Record<string, ScheduleItem[]>; nextId: number } {
   const endDate = new Date(semesterEndDate)
   const scheduleItems: Record<string, ScheduleItem[]> = {
@@ -186,12 +187,15 @@ export function icalEventsToScheduleItems(
     Sun: [...(existingSchedule.Sun || [])],
   }
 
-  // Remove existing ICS-sourced items before re-adding (avoids duplicates on re-sync)
+  // Remove existing ICS-sourced items from this feed (or all ical if no sourceUrl for backward compat)
   const icalSource = 'ical' as const
   for (const day of DAY_KEYS) {
-    scheduleItems[day] = scheduleItems[day].filter(
-      (item) => (item as ScheduleItem & { source?: string }).source !== icalSource
-    )
+    scheduleItems[day] = scheduleItems[day].filter((item) => {
+      const extended = item as ScheduleItem & { source?: string; icalUrl?: string }
+      if (extended.source !== icalSource) return true
+      if (sourceUrl) return extended.icalUrl !== sourceUrl
+      return false // remove all ical when no sourceUrl (legacy)
+    })
   }
 
   let currentId = nextTaskId
@@ -215,7 +219,7 @@ export function icalEventsToScheduleItems(
     }
     if (title.length > 100) title = title.slice(0, 97) + '...'
 
-    const item: ScheduleItem & { source?: string; icalUid?: string } = {
+    const item: ScheduleItem & { source?: string; icalUid?: string; icalUrl?: string } = {
       id: currentId,
       title,
       time: timeStr,
@@ -224,6 +228,7 @@ export function icalEventsToScheduleItems(
       completed: false,
       source: 'ical',
       icalUid: evt.uid,
+      ...(sourceUrl && { icalUrl: sourceUrl }),
     }
 
     scheduleItems[dayKey].push(item)

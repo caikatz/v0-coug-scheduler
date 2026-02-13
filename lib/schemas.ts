@@ -160,6 +160,7 @@ export const ScheduleItemSchema = z.object({
   completed: z.boolean(),
   source: z.enum(['ical']).optional(), // 'ical' when imported from ICS feed
   icalUid: z.string().optional(), // UID from ICS for deduplication
+  icalUrl: z.string().optional(), // ICS feed URL for per-feed removal
   repeatType: RepeatTypeSchema.optional(),
   repeatDays: z.array(z.number().min(0).max(6)).optional(),
   repeatGroupId: z.number().optional(), // links occurrences of same recurring task
