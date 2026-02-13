@@ -24,6 +24,9 @@ import {
   Grid3X3,
   List,
   RotateCcw,
+  Calendar,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 
 // Import Zod types and persistence hooks
@@ -33,7 +36,12 @@ import {
   useScheduleState,
   useNavigationState,
   useChatState,
+  useCalendarUrls,
 } from '@/lib/persistence-hooks'
+import {
+  icalEventsToScheduleItems,
+  type ICalEvent,
+} from '@/lib/ical-parser'
 import {
   processUserPreferences,
   formatTime24To12,
@@ -156,8 +164,16 @@ export default function ScheduleApp() {
     completeSurvey,
   } = useSurveyState()
 
-  const { scheduleItems, nextTaskId, updateScheduleItems, incrementTaskId } =
-    useScheduleState()
+  const {
+    scheduleItems,
+    nextTaskId,
+    updateScheduleItems,
+    incrementTaskId,
+    setNextTaskId,
+    setScheduleState,
+  } = useScheduleState()
+
+  const { icsUrls, addCalendarUrl, removeCalendarUrl } = useCalendarUrls()
 
   const {
     messages: chatMessages,
@@ -209,6 +225,10 @@ export default function ScheduleApp() {
   const [showFollowUp, setShowFollowUp] = useState(false)
   const [pendingAnswer, setPendingAnswer] = useState<string>('')
   const [showResetDialog, setShowResetDialog] = useState(false)
+  const [showCalendarDialog, setShowCalendarDialog] = useState(false)
+  const [icsInputValue, setIcsInputValue] = useState('')
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false)
+  const [calendarSyncError, setCalendarSyncError] = useState<string | null>(null)
 
   // Chat auto-scroll functionality
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -670,6 +690,77 @@ export default function ScheduleApp() {
     clearAllStorage()
     // Reload the page to reinitialize all states
     window.location.reload()
+  }
+
+  function handleAddCalendarUrl() {
+    const trimmed = icsInputValue.trim()
+    if (!trimmed) return
+    try {
+      new URL(trimmed)
+    } catch {
+      setCalendarSyncError('Please enter a valid URL')
+      return
+    }
+    setCalendarSyncError(null)
+    addCalendarUrl(trimmed)
+    setIcsInputValue('')
+  }
+
+  async function handleSyncCalendar() {
+    if (icsUrls.length === 0) {
+      setCalendarSyncError('Add at least one calendar URL first')
+      return
+    }
+    setCalendarSyncError(null)
+    setIsSyncingCalendar(true)
+    try {
+      let allEvents: ICalEvent[] = []
+      for (const url of icsUrls) {
+        const res = await fetch('/api/fetch-ics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch calendar')
+        }
+        const events = (data.events || []).map(
+          (e: {
+            uid: string
+            title: string
+            start: string
+            end: string
+            isAllDay: boolean
+            location?: string
+          }) =>
+            ({
+              ...e,
+              start: new Date(e.start),
+              end: new Date(e.end),
+            }) as ICalEvent
+        )
+        allEvents = allEvents.concat(events)
+      }
+      const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
+        allEvents,
+        scheduleItems,
+        nextTaskId,
+        WSU_SEMESTER.current.end
+      )
+      setScheduleState((prev) => ({
+        ...prev,
+        scheduleItems: merged,
+        nextTaskId: nextId,
+      }))
+      setShowCalendarDialog(false)
+    } catch (err) {
+      setCalendarSyncError(
+        err instanceof Error ? err.message : 'Failed to sync calendar'
+      )
+    } finally {
+      setIsSyncingCalendar(false)
+    }
   }
 
   // Filter tasks to only show those that match the current week's dates
@@ -1205,17 +1296,112 @@ export default function ScheduleApp() {
             {MONTHS[currentDateObj.getMonth()]} {currentDateObj.getFullYear()}
           </p>
         </div>
-        <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
-          <DialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950"
-            >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Dialog open={showCalendarDialog} onOpenChange={setShowCalendarDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 py-1 text-primary hover:bg-primary/10"
+              >
+                <Calendar className="h-4 w-4 mr-1" />
+                Calendar
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden">
+              <DialogHeader>
+                <DialogTitle>Sync Calendar</DialogTitle>
+                <DialogDescription className="break-words">
+                  Add your iCal/ICS feed URL to pull events into your schedule.
+                  Works with Google Calendar, Outlook, Apple Calendar, and more.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4 min-w-0 overflow-hidden">
+                <div className="flex gap-2 min-w-0">
+                  <input
+                    type="url"
+                    placeholder="https://calendar.google.com/calendar/ical/..."
+                    value={icsInputValue}
+                    onChange={(e) => setIcsInputValue(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === 'Enter' && (e.preventDefault(), handleAddCalendarUrl())
+                    }
+                    className="flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleAddCalendarUrl}
+                    disabled={!icsInputValue.trim()}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {icsUrls.length > 0 && (
+                  <div className="space-y-2 min-w-0 overflow-hidden">
+                    <p className="text-sm font-medium text-foreground">
+                      Calendar feeds ({icsUrls.length})
+                    </p>
+                    <ul className="space-y-2 max-h-32 overflow-y-auto min-w-0">
+                      {icsUrls.map((url) => (
+                        <li
+                          key={url}
+                          className="flex items-center justify-between gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 min-w-0"
+                        >
+                          <span className="flex-1 min-w-0 break-all">
+                            {url}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeCalendarUrl(url)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {calendarSyncError && (
+                  <p className="text-sm text-destructive">{calendarSyncError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCalendarDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSyncCalendar}
+                  disabled={isSyncingCalendar || icsUrls.length === 0}
+                >
+                  {isSyncingCalendar ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Syncing...
+                    </>
+                  ) : (
+                    'Sync Calendar'
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950"
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Reset All Data</DialogTitle>
@@ -1237,6 +1423,7 @@ export default function ScheduleApp() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Calendar */}

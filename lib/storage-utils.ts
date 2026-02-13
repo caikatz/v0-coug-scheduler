@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   SCHEDULE_STATE: 'coug_scheduler_schedule_state',
   CHAT_STATE: 'coug_scheduler_chat_state',
   NAVIGATION_STATE: 'coug_scheduler_navigation_state',
+  CALENDAR_URLS: 'coug_scheduler_calendar_urls',
 } as const
 
 // localStorage utility functions with Zod validation

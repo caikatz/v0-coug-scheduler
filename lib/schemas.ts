@@ -131,6 +131,8 @@ export const ScheduleItemSchema = z.object({
   dueDate: z.string().optional(),
   priority: PrioritySchema,
   completed: z.boolean(),
+  source: z.enum(['ical']).optional(), // 'ical' when imported from ICS feed
+  icalUid: z.string().optional(), // UID from ICS for deduplication
 })
 
 // Chat message with validation
