@@ -24,6 +24,9 @@ import {
   Grid3X3,
   List,
   RotateCcw,
+  Calendar,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 
 // Import Zod types and persistence hooks
@@ -33,13 +36,20 @@ import {
   useScheduleState,
   useNavigationState,
   useChatState,
+  useCalendarUrls,
 } from '@/lib/persistence-hooks'
+import {
+  icalEventsToScheduleItems,
+  type ICalEvent,
+} from '@/lib/ical-parser'
 import {
   processUserPreferences,
   formatTime24To12,
   convertTo24Hour,
   validateTaskForm,
-  WSU_SEMESTER
+  WSU_SEMESTER,
+  expandRecurringTasks,
+  type RepeatType,
 } from '@/lib/schemas'
 import { useAIChat } from '@/lib/ai-chat-hook'
 import {
@@ -156,8 +166,16 @@ export default function ScheduleApp() {
     completeSurvey,
   } = useSurveyState()
 
-  const { scheduleItems, nextTaskId, updateScheduleItems, incrementTaskId } =
-    useScheduleState()
+  const {
+    scheduleItems,
+    nextTaskId,
+    updateScheduleItems,
+    incrementTaskId,
+    setNextTaskId,
+    setScheduleState,
+  } = useScheduleState()
+
+  const { icsUrls, addCalendarUrl, removeCalendarUrl } = useCalendarUrls()
 
   const {
     messages: chatMessages,
@@ -198,6 +216,8 @@ export default function ScheduleApp() {
     endTime: '',
     dueDate: '',
     priority: 'medium',
+    repeatType: 'never',
+    repeatDays: [],
   })
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [taskFormErrors, setTaskFormErrors] = useState<string[]>([])
@@ -209,6 +229,10 @@ export default function ScheduleApp() {
   const [showFollowUp, setShowFollowUp] = useState(false)
   const [pendingAnswer, setPendingAnswer] = useState<string>('')
   const [showResetDialog, setShowResetDialog] = useState(false)
+  const [showCalendarDialog, setShowCalendarDialog] = useState(false)
+  const [icsInputValue, setIcsInputValue] = useState('')
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false)
+  const [calendarSyncError, setCalendarSyncError] = useState<string | null>(null)
 
   // Chat auto-scroll functionality
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -236,6 +260,74 @@ export default function ScheduleApp() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, isLoading])
+
+  // Daily ICS calendar refresh - syncs every 24 hours when ICS URLs are configured
+  const scheduleItemsRef = useRef(scheduleItems)
+  const nextTaskIdRef = useRef(nextTaskId)
+  const icsUrlsRef = useRef(icsUrls)
+  scheduleItemsRef.current = scheduleItems
+  nextTaskIdRef.current = nextTaskId
+  icsUrlsRef.current = icsUrls
+
+  useEffect(() => {
+    if (icsUrls.length === 0) return
+
+    const runBackgroundSync = async () => {
+      const urls = icsUrlsRef.current
+      if (urls.length === 0) return
+      try {
+        let currentSchedule = { ...scheduleItemsRef.current }
+        let currentNextId = nextTaskIdRef.current
+        for (const url of urls) {
+          const res = await fetch('/api/fetch-ics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          })
+          const data = await res.json()
+          if (!data.success) return
+          const events = (data.events || []).map(
+            (e: {
+              uid: string
+              title: string
+              start: string
+              end: string
+              isAllDay: boolean
+              location?: string
+            }) =>
+              ({
+                ...e,
+                start: new Date(e.start),
+                end: new Date(e.end),
+              }) as ICalEvent
+          )
+          const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
+            events,
+            currentSchedule,
+            currentNextId,
+            WSU_SEMESTER.current.end,
+            url
+          )
+          currentSchedule = merged
+          currentNextId = nextId
+        }
+        setScheduleState((prev) => ({
+          ...prev,
+          scheduleItems: currentSchedule,
+          nextTaskId: currentNextId,
+        }))
+      } catch {
+        // Silent fail for background sync
+      }
+    }
+
+    const DAILY_MS = 24 * 60 * 60 * 1000
+
+    runBackgroundSync()
+
+    const intervalId = setInterval(runBackgroundSync, DAILY_MS)
+    return () => clearInterval(intervalId)
+  }, [icsUrls.length, setScheduleState])
 
   // Helper to convert slider value to hour string
   function sliderToHourString(value: number, questionId: number): string {
@@ -385,6 +477,10 @@ export default function ScheduleApp() {
       week.push(weekDate)
     }
     return week
+  }
+
+  function formatDateLocal(d: Date): string {
+    return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
   }
 
   function navigateWeek(direction: 'prev' | 'next') {
@@ -567,12 +663,19 @@ export default function ScheduleApp() {
       }
     }
 
+    const taskWithRepeat = task as ScheduleItem & {
+      repeatType?: RepeatType
+      repeatDays?: number[]
+      repeatGroupId?: number
+    }
     setTaskForm({
       name: task.title,
       startTime,
       endTime,
       dueDate: task.dueDate || '',
       priority: task.priority,
+      repeatType: taskWithRepeat.repeatType ?? 'never',
+      repeatDays: taskWithRepeat.repeatDays ?? [],
     })
     setShowTaskEditor(true)
   }
@@ -582,75 +685,63 @@ export default function ScheduleApp() {
     const validation = validateTaskForm(taskForm)
     if (!validation.success) {
       setTaskFormErrors(validation.errors)
-      return // Don't save if there are validation errors
+      return
     }
 
-    // Clear any previous errors
     setTaskFormErrors([])
 
-    const dayKey = DAYS[selectedDay]
-    const hasTimeRange = taskForm.startTime && taskForm.endTime
+    const editingTaskWithRepeat = editingTask as ScheduleItem & {
+      repeatGroupId?: number
+    }
 
     if (editingTask) {
-      // Update existing task
-      updateScheduleItems((items) => ({
-        ...items,
-        [dayKey]:
-          items[dayKey]?.map((task) => {
-            if (task.id === editingTask.id) {
-              const updatedTask: ScheduleItem = {
-                ...task,
-                title: taskForm.name,
-                priority: taskForm.priority as 'high' | 'medium' | 'low',
-              }
+      const repeatGroupId = editingTaskWithRepeat.repeatGroupId
+      const idsToRemove = repeatGroupId
+        ? (() => {
+            const ids: number[] = []
+            DAYS.forEach((day) => {
+              (scheduleItems[day] || []).forEach((item) => {
+                const ir = item as ScheduleItem & { repeatGroupId?: number }
+                if (ir.repeatGroupId === repeatGroupId) ids.push(ir.id)
+              })
+            })
+            return ids
+          })()
+        : [editingTask.id]
 
-              if (hasTimeRange) {
-                const startTime12 = formatTime24To12(taskForm.startTime!)
-                const endTime12 = formatTime24To12(taskForm.endTime!)
-                updatedTask.time = `${startTime12} - ${endTime12}`
-              } else {
-                // Remove time field if no times provided
-                delete updatedTask.time
-              }
-
-              // Save due date if provided
-              if (taskForm.dueDate) {
-                updatedTask.dueDate = taskForm.dueDate
-              } else {
-                delete updatedTask.dueDate
-              }
-
-              return updatedTask
-            }
-            return task
-          }) || [],
-      }))
+      updateScheduleItems((items) => {
+        let result = { ...items }
+        DAYS.forEach((day) => {
+          result[day] = (result[day] || []).filter(
+            (item) => !idsToRemove.includes(item.id)
+          )
+        })
+        const { itemsByDay, nextId } = expandRecurringTasks(
+          { ...taskForm, dueDate: taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay]) },
+          nextTaskId,
+          WSU_SEMESTER.current.end
+        )
+        DAYS.forEach((day) => {
+          result[day] = [...(result[day] || []), ...itemsByDay[day]]
+        })
+        setNextTaskId(nextId)
+        return result
+      })
     } else {
-      // Add new task
-      const newTask: ScheduleItem = {
-        id: nextTaskId,
-        title: taskForm.name,
-        priority: taskForm.priority as 'high' | 'medium' | 'low',
-        completed: false,
-      }
-
-      if (hasTimeRange) {
-        const startTime12 = formatTime24To12(taskForm.startTime!)
-        const endTime12 = formatTime24To12(taskForm.endTime!)
-        newTask.time = `${startTime12} - ${endTime12}`
-      }
-
-      // Save due date if provided
-      if (taskForm.dueDate) {
-        newTask.dueDate = taskForm.dueDate
-      }
-
-      updateScheduleItems((items) => ({
-        ...items,
-        [dayKey]: [...(items[dayKey] || []), newTask],
-      }))
-
-      incrementTaskId()
+      const dueDate = taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay])
+      const { itemsByDay, nextId } = expandRecurringTasks(
+        { ...taskForm, dueDate },
+        nextTaskId,
+        WSU_SEMESTER.current.end
+      )
+      updateScheduleItems((items) => {
+        const result = { ...items }
+        DAYS.forEach((day) => {
+          result[day] = [...(result[day] || []), ...itemsByDay[day]]
+        })
+        return result
+      })
+      setNextTaskId(nextId)
     }
 
     setShowTaskEditor(false)
@@ -662,6 +753,8 @@ export default function ScheduleApp() {
       endTime: '',
       dueDate: '',
       priority: 'medium',
+      repeatType: 'never',
+      repeatDays: [],
     })
   }
 
@@ -672,10 +765,98 @@ export default function ScheduleApp() {
     window.location.reload()
   }
 
+  function handleAddCalendarUrl() {
+    const trimmed = icsInputValue.trim()
+    if (!trimmed) return
+    try {
+      new URL(trimmed)
+    } catch {
+      setCalendarSyncError('Please enter a valid URL')
+      return
+    }
+    setCalendarSyncError(null)
+    addCalendarUrl(trimmed)
+    setIcsInputValue('')
+  }
+
+  function handleRemoveCalendarUrl(url: string) {
+    removeCalendarUrl(url)
+    updateScheduleItems((items) => {
+      const result = { ...items }
+      DAYS.forEach((day) => {
+        result[day] = (result[day] || []).filter(
+          (item) =>
+            (item as ScheduleItem & { icalUrl?: string }).icalUrl !== url
+        )
+      })
+      return result
+    })
+  }
+
+  async function handleSyncCalendar() {
+    if (icsUrls.length === 0) {
+      setCalendarSyncError('Add at least one calendar URL first')
+      return
+    }
+    setCalendarSyncError(null)
+    setIsSyncingCalendar(true)
+    try {
+      let currentSchedule = { ...scheduleItems }
+      let currentNextId = nextTaskId
+      for (const url of icsUrls) {
+        const res = await fetch('/api/fetch-ics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch calendar')
+        }
+        const events = (data.events || []).map(
+          (e: {
+            uid: string
+            title: string
+            start: string
+            end: string
+            isAllDay: boolean
+            location?: string
+          }) =>
+            ({
+              ...e,
+              start: new Date(e.start),
+              end: new Date(e.end),
+            }) as ICalEvent
+        )
+        const { scheduleItems: merged, nextId } = icalEventsToScheduleItems(
+          events,
+          currentSchedule,
+          currentNextId,
+          WSU_SEMESTER.current.end,
+          url
+        )
+        currentSchedule = merged
+        currentNextId = nextId
+      }
+      setScheduleState((prev) => ({
+        ...prev,
+        scheduleItems: currentSchedule,
+        nextTaskId: currentNextId,
+      }))
+      setShowCalendarDialog(false)
+    } catch (err) {
+      setCalendarSyncError(
+        err instanceof Error ? err.message : 'Failed to sync calendar'
+      )
+    } finally {
+      setIsSyncingCalendar(false)
+    }
+  }
+
   // Filter tasks to only show those that match the current week's dates
   const weekDates = getWeekDates(currentDateObj)
   const currentSelectedDate = weekDates[selectedDay]
-  const currentDateString = currentSelectedDate.toISOString().split('T')[0] // YYYY-MM-DD format
+  const currentDateString = formatDateLocal(currentSelectedDate)
 
   const currentScheduleItems = (scheduleItems[DAYS[selectedDay]] || []).filter(
     (item) => {
@@ -1146,6 +1327,70 @@ export default function ScheduleApp() {
             />
           </div>
 
+          <div>
+            <label className="text-sm font-medium text-foreground mb-2 block">
+              Repeat
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(['never', 'daily', 'weekly', 'monthly', 'custom'] as const).map(
+                (type) => (
+                  <Button
+                    key={type}
+                    variant={
+                      (taskForm.repeatType ?? 'never') === type
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    onClick={() =>
+                      setTaskForm((prev) => ({
+                        ...prev,
+                        repeatType: type,
+                        repeatDays: type === 'custom' ? prev.repeatDays ?? [] : undefined,
+                      }))
+                    }
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Button>
+                )
+              )}
+            </div>
+            {(taskForm.repeatType ?? 'never') === 'custom' && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    [0, 'Sun'],
+                    [1, 'Mon'],
+                    [2, 'Tue'],
+                    [3, 'Wed'],
+                    [4, 'Thu'],
+                    [5, 'Fri'],
+                    [6, 'Sat'],
+                  ] as const
+                ).map(([dayNum, label]) => (
+                  <Button
+                    key={dayNum}
+                    variant={
+                      (taskForm.repeatDays ?? []).includes(dayNum)
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    onClick={() => {
+                      const current = taskForm.repeatDays ?? []
+                      const next = current.includes(dayNum)
+                        ? current.filter((d) => d !== dayNum)
+                        : [...current, dayNum].sort((a, b) => a - b)
+                      setTaskForm((prev) => ({ ...prev, repeatDays: next }))
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3 pt-4">
             <Button
               variant="outline"
@@ -1205,17 +1450,112 @@ export default function ScheduleApp() {
             {MONTHS[currentDateObj.getMonth()]} {currentDateObj.getFullYear()}
           </p>
         </div>
-        <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
-          <DialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-auto px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950"
-            >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Dialog open={showCalendarDialog} onOpenChange={setShowCalendarDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 py-1 text-primary hover:bg-primary/10"
+              >
+                <Calendar className="h-4 w-4 mr-1" />
+                Calendar
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden">
+              <DialogHeader>
+                <DialogTitle>Sync Calendar</DialogTitle>
+                <DialogDescription className="break-words">
+                  Add your iCal/ICS feed URL to pull events into your schedule.
+                  Works with Google Calendar, Outlook, Apple Calendar, and more.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4 min-w-0 overflow-hidden">
+                <div className="flex gap-2 min-w-0">
+                  <input
+                    type="url"
+                    placeholder="https://calendar.google.com/calendar/ical/..."
+                    value={icsInputValue}
+                    onChange={(e) => setIcsInputValue(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === 'Enter' && (e.preventDefault(), handleAddCalendarUrl())
+                    }
+                    className="flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleAddCalendarUrl}
+                    disabled={!icsInputValue.trim()}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {icsUrls.length > 0 && (
+                  <div className="space-y-2 min-w-0 overflow-hidden">
+                    <p className="text-sm font-medium text-foreground">
+                      Calendar feeds ({icsUrls.length})
+                    </p>
+                    <ul className="space-y-2 max-h-32 overflow-y-auto min-w-0">
+                      {icsUrls.map((url) => (
+                        <li
+                          key={url}
+                          className="flex items-center justify-between gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 min-w-0"
+                        >
+                          <span className="flex-1 min-w-0 break-all">
+                            {url}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleRemoveCalendarUrl(url)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {calendarSyncError && (
+                  <p className="text-sm text-destructive">{calendarSyncError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCalendarDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSyncCalendar}
+                  disabled={isSyncingCalendar || icsUrls.length === 0}
+                >
+                  {isSyncingCalendar ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Syncing...
+                    </>
+                  ) : (
+                    'Sync Calendar'
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950"
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Reset All Data</DialogTitle>
@@ -1237,6 +1577,7 @@ export default function ScheduleApp() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Calendar */}
@@ -1270,7 +1611,7 @@ export default function ScheduleApp() {
             const date = weekDates[index]
             const isSelected = selectedDay === index
             const isToday = date.toDateString() === new Date().toDateString()
-            const dateString = date.toISOString().split('T')[0] // YYYY-MM-DD format
+            const dateString = formatDateLocal(date)
 
             // Filter tasks for this specific date, same logic as task display
             const dayTasks = (scheduleItems[day] || []).filter((item) => {
@@ -1460,6 +1801,8 @@ export default function ScheduleApp() {
                 endTime: '',
                 dueDate: '',
                 priority: 'medium',
+                repeatType: 'never',
+                repeatDays: [],
               })
               setShowTaskEditor(true)
             }}
