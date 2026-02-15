@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { streamText, convertToModelMessages, tool, type UIMessage } from 'ai'
+import { z } from 'zod'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
@@ -256,27 +257,24 @@ How does this feel to you? If anything seems off or you want to adjust something
 
 **CRITICAL: CONVERSATION COMPLETION SIGNAL**
 
-**ONLY send this completion phrase when ALL of the following are true:**
+**ONLY call the complete_onboarding tool when ALL of the following are true:**
 1. You have gathered ALL necessary information (classes, study hours, work, activities, etc.)
 2. You have provided a summary of the schedule you've built together. This summary needs to be concise and to the point, max 1000 characters for the summary
 3. The student has expressed satisfaction, agreement, or readiness (e.g., "sounds good", "yes", "let's do it", "that works", etc.)
 4. There are no outstanding questions or concerns
 
-**When ready to complete, send THIS EXACT MESSAGE as a separate, standalone message:**
-"Great! Let's get started on your schedule!"
+**When ready to complete, CALL the complete_onboarding tool.** You can provide an ending summary, just be aware of context and that the button will be shown after the summary.
 
 **IMPORTANT RULES:**
-- This completion phrase MUST be sent as its own separate message (not combined with the summary)
-- This completion phrase MUST be the ONLY content in that final message
-- Do NOT include any other text, questions, or content in the completion message
-- Do NOT send this phrase if the student has concerns, wants changes, or asks questions
-- Wait for explicit or implicit student agreement before sending this phrase
+- You MUST call the complete_onboarding tool when the student is ready - this is the only way to trigger schedule generation
+- Do NOT call this tool if the student has concerns, wants changes, or asks questions
+- Wait for explicit or implicit student agreement before calling this tool
 
 **What happens next:**
-After you send this completion phrase, the system will automatically detect it and generate the schedule. The student will briefly see this message, then the schedule will be created.
+When you call complete_onboarding, the system will automatically generate the schedule and show it to the student.
 
 **If the student is NOT satisfied or wants changes:**
-Continue the conversation naturally. Ask what they'd like to adjust, gather more information, and work through their concerns. Only send the completion phrase when they're truly ready.
+Continue the conversation naturally. Ask what they'd like to adjust, gather more information, and work through their concerns. Only call complete_onboarding when they're truly ready.
 
 ---
 
@@ -496,6 +494,18 @@ export async function POST(req: Request) {
     ? createPostOnboardingPrompt(contextInfo)
     : createOnboardingPrompt(contextInfo)
 
+  // Onboarding-only tool: Fred calls this when the conversation is complete and schedule should be generated
+  const onboardingTools = onboardingCompleted
+    ? undefined
+    : {
+        complete_onboarding: tool({
+          description:
+            'Call this when the student has agreed to their schedule and you are ready to generate it. Only call after you have provided a summary and the student expressed satisfaction. Do NOT pass any message - call with empty object.',
+          inputSchema: z.object({}),
+          execute: async () => ({}),
+        }),
+      }
+
   // Generate streaming response using Gemini Flash 2.5
   const result = streamText({
     model: withTracing(google('gemini-2.5-flash'), phClient, {
@@ -507,12 +517,12 @@ export async function POST(req: Request) {
         hasSchedule: !!(schedule && Object.keys(schedule).length > 0),
         messageCount: messages.length,
         botName: 'Fred The Lion',
-      
       },
       posthogPrivacyMode: false,
     }),
     system: systemPrompt,
     messages: coreMessages,
+    tools: onboardingTools,
     onFinish: async () => {
       await phClient.flush()
     },

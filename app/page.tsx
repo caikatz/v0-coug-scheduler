@@ -251,62 +251,26 @@ export default function ScheduleApp() {
     }
   }
 
-  // Detect when Fred response "Let's get started on your schedule"
-  useEffect(() => {
-    // Only during onboarding, when AI finishes responding, and not already generating
+  // Show return-to-home button when Fred has called complete_onboarding
+  const showReturnToHomeButton = (() => {
     if (
-      onboardingCompleted || // Already completed onboarding
-      isLoading || // Still loading
-      isGeneratingSchedule || // Already generating schedule
-      messages.length < 2 // need at least opening message + one response
+      onboardingCompleted ||
+      isLoading ||
+      isGeneratingSchedule ||
+      messages.length < 2
     ) {
-      return
+      return false
     }
-
     const lastMessage = messages[messages.length - 1]
-
-    // Check if Fred just finished responding with the completion phrase
-    if (lastMessage?.role === 'assistant') {
-      // Extract message text - handle both 'content' format and 'parts' array format
-      let messageText = ''
-      
-      // Check for content property first
-      if ((lastMessage as { content?: string }).content) {
-        messageText = (lastMessage as { content?: string }).content || ''
-      } 
-      // Otherwise, concatenate all text parts
-      else if (lastMessage.parts && lastMessage.parts.length > 0) {
-        messageText = lastMessage.parts
-          .filter((part) => part.type === 'text')
-          .map((part) => part.text)
-          .join('')
-      }
-
-      if (messageText) {
-        const text = messageText.toLowerCase()
-        
-        // Debug: log last part of message to see if phrase is there
-        const last100Chars = text.slice(-100)
-        console.log('🔍 Last 100 chars of message:', last100Chars)
-        console.log('🔍 Looking for end phrase')
-        
-        // Detect the completion phrase (case-insensitive, with/without period)
-        if (
-          text.includes("let's get started on your schedule") ||
-          text.includes("lets get started on your schedule")
-        ) {
-          console.log('✅ PHRASE DETECTED! Exiting...')
-          
-          // Small delay to ensure message is fully rendered
-          setTimeout(() => {
-            handleBackToMain()
-          }, 2500)
-        }
-      } else {
-        console.log('⚠️ No end phrase found')
-      }
+    if (lastMessage?.role !== 'assistant' || !lastMessage.parts?.length) {
+      return false
     }
-  }, [messages, isLoading, onboardingCompleted, isGeneratingSchedule])
+    return lastMessage.parts.some(
+      (part: { type?: string; state?: string }) =>
+        part.type === 'tool-complete_onboarding' &&
+        part.state === 'output-available'
+    )
+  })()
 
   function handleSurveyAnswer(answer: string | number[]) {
     const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
@@ -944,6 +908,19 @@ export default function ScheduleApp() {
               </div>
             </div>
           ))}
+
+          {/* Big red button to return to home when onboarding is complete */}
+          {showReturnToHomeButton && (
+            <div className="flex justify-center py-4">
+              <Button
+                size="lg"
+                onClick={handleBackToMain}
+                className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                ← View your schedule
+              </Button>
+            </div>
+          )}
 
           {/* Error display */}
           {error && (
