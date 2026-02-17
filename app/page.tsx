@@ -977,7 +977,9 @@ export default function ScheduleApp() {
                 placeholder={
                   isLoading
                     ? 'Fred is thinking...'
-                    : 'Message Fred the Cougar...'
+
+                    : 'Message Fred the Lion...'
+
                 }
                 disabled={isLoading}
                 className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
