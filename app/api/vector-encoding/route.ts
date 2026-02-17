@@ -1,10 +1,10 @@
 // app/api/search-courses/route.ts
-console.log("Script started...");
 import { NextRequest, NextResponse } from 'next/server'
 import { formatCoursesForPrompt } from './format-courses'
 import { findRelevantCourses } from './course-search'
 
-export const runtime = 'edge' // Optional: use edge runtime for faster cold starts
+// Note: Edge runtime removed - course-embeddings.json is ~58MB, exceeding Edge's ~1-4MB bundle limit.
+// Using Node.js runtime (default) which supports larger bundles.
 
 export async function POST(request: NextRequest) {
   try {
