@@ -1,4 +1,4 @@
-// This is a dev only script used to update courses atored on vercel. run locally then push
+// This is a dev only script used to update courses stored on vercel. run locally then push
 // Run locally then push new course-embeddings.
 console.log('Script started!')
 
