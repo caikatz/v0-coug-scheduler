@@ -39,11 +39,13 @@ import {
   formatTime24To12,
   convertTo24Hour,
   validateTaskForm,
+  WSU_SEMESTER
 } from '@/lib/schemas'
 import { useAIChat } from '@/lib/ai-chat-hook'
 import {
   transformAIScheduleToItems,
   mergeScheduleForWeek,
+  applyScheduleChanges,
 } from '@/lib/schedule-transformer'
 import { clearAllStorage } from '@/lib/storage-utils'
 
@@ -210,9 +212,24 @@ export default function ScheduleApp() {
 
   // Chat auto-scroll functionality
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [textareaHasOverflow, setTextareaHasOverflow] = useState(false) // UseState that toggles true/false when the send button moves a little when theres mutliple lines
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value)
+
+    // Check if textarea has overflowed to multiple lines
+    // ScrollHeight - Total height of every line in the textbox
+    // ClientHeight - Total VISIBLE height of every line in the textbox
+
+    if (textareaRef.current) {
+      const hasOverflow = textareaRef.current.scrollHeight > textareaRef.current.clientHeight
+      setTextareaHasOverflow(hasOverflow)
+    }
   }
 
   // Auto-scroll when messages change or loading state changes
@@ -234,62 +251,26 @@ export default function ScheduleApp() {
     }
   }
 
-  // Detect when Fred response "Let's get started on your schedule"
-  useEffect(() => {
-    // Only during onboarding, when AI finishes responding, and not already generating
+  // Show return-to-home button when Fred has called complete_onboarding
+  const showReturnToHomeButton = (() => {
     if (
-      onboardingCompleted || // Already completed onboarding
-      isLoading || // Still loading
-      isGeneratingSchedule || // Already generating schedule
-      messages.length < 2 // need at least opening message + one response
+      onboardingCompleted ||
+      isLoading ||
+      isGeneratingSchedule ||
+      messages.length < 2
     ) {
-      return
+      return false
     }
-
     const lastMessage = messages[messages.length - 1]
-
-    // Check if Fred just finished responding with the completion phrase
-    if (lastMessage?.role === 'assistant') {
-      // Extract message text - handle both 'content' format and 'parts' array format
-      let messageText = ''
-      
-      // Check for content property first
-      if ((lastMessage as { content?: string }).content) {
-        messageText = (lastMessage as { content?: string }).content || ''
-      } 
-      // Otherwise, concatenate all text parts
-      else if (lastMessage.parts && lastMessage.parts.length > 0) {
-        messageText = lastMessage.parts
-          .filter((part) => part.type === 'text')
-          .map((part) => part.text)
-          .join('')
-      }
-
-      if (messageText) {
-        const text = messageText.toLowerCase()
-        
-        // Debug: log last part of message to see if phrase is there
-        const last100Chars = text.slice(-100)
-        console.log('🔍 Last 100 chars of message:', last100Chars)
-        console.log('🔍 Looking for end phrase')
-        
-        // Detect the completion phrase (case-insensitive, with/without period)
-        if (
-          text.includes("let's get started on your schedule") ||
-          text.includes("lets get started on your schedule")
-        ) {
-          console.log('✅ PHRASE DETECTED! Exiting...')
-          
-          // Small delay to ensure message is fully rendered
-          setTimeout(() => {
-            handleBackToMain()
-          }, 2500)
-        }
-      } else {
-        console.log('⚠️ No end phrase found')
-      }
+    if (lastMessage?.role !== 'assistant' || !lastMessage.parts?.length) {
+      return false
     }
-  }, [messages, isLoading, onboardingCompleted, isGeneratingSchedule])
+    return lastMessage.parts.some(
+      (part: { type?: string; state?: string }) =>
+        part.type === 'tool-complete_onboarding' &&
+        part.state === 'output-available'
+    )
+  })()
 
   function handleSurveyAnswer(answer: string | number[]) {
     const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
@@ -402,7 +383,9 @@ export default function ScheduleApp() {
         const response = await fetch('/api/generate-schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({ messages,
+            existingSchedule: scheduleItems
+           }),
         })
 
         console.timeEnd('fetch-api-call')
@@ -416,41 +399,62 @@ export default function ScheduleApp() {
 
         if (data.success && data.schedule) {
           console.time('schedule-processing')
-
+          
           // Get current week dates
           const weekDates = getWeekDates(currentDateObj)
 
-          // Transform AI schedule to ScheduleItems format
+        if (data.schedule.update_type === 'none') {
+          // No update - just exit
+          console.log('✅ No schedule changes detected')
+        } else if (data.schedule.update_type === 'partial') {
+          const updated = applyScheduleChanges(
+            scheduleItems,
+            data.schedule.changes || [],
+            weekDates,
+            nextTaskId,
+            WSU_SEMESTER.current.end
+          )
+          
+          // Count new tasks added
+          const oldTaskCount = Object.values(scheduleItems).flat().length
+          const newTaskCount = Object.values(updated).flat().length
+          const addedTasks = newTaskCount - oldTaskCount
+          
+          updateScheduleItems(() => updated)
+      
+      // Increment task ID for new items
+      for (let i = 0; i < addedTasks; i++) {
+        incrementTaskId()
+      }
+        } else if (data.schedule.update_type === 'full') {
           const transformedSchedule = transformAIScheduleToItems(
-            data.schedule,
+            {
+              update_type: data.schedule.update_type,
+              weekly_schedule: data.schedule.weekly_schedule || [],
+              schedule_summary: data.schedule.schedule_summary,
+              notes: data.schedule.notes,
+            },
             weekDates,
             nextTaskId
           )
 
-          // Merge with existing schedule (replaces current week)
-          const mergedSchedule = mergeScheduleForWeek(
-            scheduleItems,
-            transformedSchedule,
-            weekDates
-          )
+          // Full overhaul: replace previous schedule entirely
+          updateScheduleItems(() => transformedSchedule)
 
-          // Update the schedule state
-          updateScheduleItems(() => mergedSchedule)
-
-          // Update next task ID
           const totalNewTasks = Object.values(transformedSchedule).flat().length
-          for (let i = 0; i < totalNewTasks; i++) {
-            incrementTaskId()
-          }
+      for (let i = 0; i < totalNewTasks; i++) {
+        incrementTaskId()
+      }
+    }
 
-          console.timeEnd('schedule-processing')
-          console.log('✅ Frontend: Schedule processing completed')
-
-          // Mark onboarding as completed after first schedule generation
-          if (!onboardingCompleted) {
-            setOnboardingCompleted(true)
-          }
-        }
+    console.timeEnd('schedule-processing')
+    console.log('✅ Frontend: Schedule processing completed')
+    
+    if (!onboardingCompleted) {
+      setOnboardingCompleted(true)
+    }
+        
+      }
       } catch (error) {
         // Fail silently as requested
         console.error('❌ Frontend: Failed to generate schedule:', error)
@@ -905,6 +909,19 @@ export default function ScheduleApp() {
             </div>
           ))}
 
+          {/* Big red button to return to home when onboarding is complete */}
+          {showReturnToHomeButton && (
+            <div className="flex justify-center py-4">
+              <Button
+                size="lg"
+                onClick={handleBackToMain}
+                className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                ← View your schedule
+              </Button>
+            </div>
+          )}
+
           {/* Error display */}
           {error && (
             <div className="flex justify-center">
@@ -952,8 +969,10 @@ export default function ScheduleApp() {
           <div className="flex items-end gap-2">
             <div className="flex flex-1 relative">
               <textarea
+                ref={textareaRef}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                maxLength={300}
+                onChange={handleTextareaInput}
                 onKeyPress={handleKeyPress}
                 placeholder={
                   isLoading
@@ -970,7 +989,7 @@ export default function ScheduleApp() {
                 onClick={handleSendMessage}
                 disabled={!inputText.trim() || isLoading}
                 size="sm"
-                className="absolute right-2 bottom-2 h-8 w-8 p-0 rounded-full"
+                className={`absolute ${textareaHasOverflow ? 'right-5' : 'right-2'} bottom-2 h-8 w-8 p-0 rounded-full`}
               >
                 <Send className="h-4 w-4" />
               </Button>

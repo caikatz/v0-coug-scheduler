@@ -438,6 +438,7 @@ export const AIScheduleBlockSchema = z.object({
   title: z.string(),
   location: z.string().optional(),
   credits: z.number().optional(),
+  is_recurring: z.boolean()
 })
 
 export const AIDayScheduleSchema = z.object({
@@ -456,14 +457,38 @@ export const AIScheduleSummarySchema = z.object({
   buffer_hours: z.number(),
 })
 
+
+
+export const ScheduleUpdateTypeSchema = z.enum(['none', 'partial', 'full'])
+
+export const ScheduleChangeSchema = z.object({
+  operation: z.enum(['add', 'remove', 'modify']),
+  day: z.string(),
+  item: AIScheduleBlockSchema.optional(), // For add/modify
+  match_title: z.string().optional(), // For remove/modify - indentifies which item
+})
+
 export const AIGeneratedScheduleSchema = z.object({
+  update_type: ScheduleUpdateTypeSchema,
+  // For 'full' update - complete new schedule
+  weekly_schedule: z.array(AIDayScheduleSchema).optional(),
+  // For 'partial' update - list of changes
+  changes: z.array(ScheduleChangeSchema).optional(),
   schedule_summary: AIScheduleSummarySchema,
-  weekly_schedule: z.array(AIDayScheduleSchema),
   notes: z.array(z.string()),
 })
+
+
+export const WSU_SEMESTER = {
+  current: {
+    start: '2026-01-12',
+    end: '2026-05-08'
+  }
+}
 
 // Type exports for AI schedule
 export type AIScheduleBlock = z.infer<typeof AIScheduleBlockSchema>
 export type AIDaySchedule = z.infer<typeof AIDayScheduleSchema>
 export type AIScheduleSummary = z.infer<typeof AIScheduleSummarySchema>
 export type AIGeneratedSchedule = z.infer<typeof AIGeneratedScheduleSchema>
+export type ScheduleChange = z.infer<typeof ScheduleChangeSchema>

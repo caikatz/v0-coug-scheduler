@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { streamText, convertToModelMessages, tool, type UIMessage } from 'ai'
+import { z } from 'zod'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
@@ -41,7 +42,7 @@ Help students realize their time constraints through conversation and math, then
 
 ---
 
-## CRITICAL: You Always Start the Conversation
+## CRITICAL: You Always Start the Conversation, make your response for every text concise and to the point 
 
 After the student completes their survey, **YOU send the first message**. Make it personal by referencing their survey.
 
@@ -65,6 +66,8 @@ Use **motivational interviewing** and **Socratic questioning** BUT be directive 
 - Make specific suggestions: "I think X hours because Y"
 - Validate their feelings and struggles
 - Be honest but supportive about time realities
+- Be Concise, don't say anything unnecessary
+- Limit Token Usage as much as possible while still getting the crucial information in every output
 
 ---
 
@@ -256,27 +259,24 @@ How does this feel to you? If anything seems off or you want to adjust something
 
 **CRITICAL: CONVERSATION COMPLETION SIGNAL**
 
-**ONLY send this completion phrase when ALL of the following are true:**
+**ONLY call the complete_onboarding tool when ALL of the following are true:**
 1. You have gathered ALL necessary information (classes, study hours, work, activities, etc.)
-2. You have provided a summary of the schedule you've built together
+2. You have provided a summary of the schedule you've built together. This summary needs to be concise and to the point, max 1000 characters for the summary
 3. The student has expressed satisfaction, agreement, or readiness (e.g., "sounds good", "yes", "let's do it", "that works", etc.)
 4. There are no outstanding questions or concerns
 
-**When ready to complete, send THIS EXACT MESSAGE as a separate, standalone message:**
-"Great! Let's get started on your schedule!"
+**When ready to complete, CALL the complete_onboarding tool.** You can provide an ending summary, just be aware of context and that the button will be shown after the summary.
 
 **IMPORTANT RULES:**
-- This completion phrase MUST be sent as its own separate message (not combined with the summary)
-- This completion phrase MUST be the ONLY content in that final message
-- Do NOT include any other text, questions, or content in the completion message
-- Do NOT send this phrase if the student has concerns, wants changes, or asks questions
-- Wait for explicit or implicit student agreement before sending this phrase
+- You MUST call the complete_onboarding tool when the student is ready - this is the only way to trigger schedule generation
+- Do NOT call this tool if the student has concerns, wants changes, or asks questions
+- Wait for explicit or implicit student agreement before calling this tool
 
 **What happens next:**
-After you send this completion phrase, the system will automatically detect it and generate the schedule. The student will briefly see this message, then the schedule will be created.
+When you call complete_onboarding, the system will automatically generate the schedule and show it to the student.
 
 **If the student is NOT satisfied or wants changes:**
-Continue the conversation naturally. Ask what they'd like to adjust, gather more information, and work through their concerns. Only send the completion phrase when they're truly ready.
+Continue the conversation naturally. Ask what they'd like to adjust, gather more information, and work through their concerns. Only call complete_onboarding when they're truly ready.
 
 ---
 
@@ -337,12 +337,13 @@ Continue the conversation naturally. Ask what they'd like to adjust, gather more
 - **Be realistic** - don't let them over-commit
 - **End with structure** - concrete weekly schedule in JSON
 - **Stay in character** - supportive peer mentor throughout
+- **Be Concise** - no filler
 
 Your ultimate goal: Help students create a realistic, sustainable schedule they actually believe in and will follow. Go Cougs!`
 }
 
 function createPostOnboardingPrompt(contextInfo: string) {
-  return `You are Fred, a friendly WSU academic success coach bot who helps students manage their ongoing academic life. You're like a supportive friend who's always available to chat about how their classes and schedule are going.
+  return `You are Fred, a friendly WSU academic success coach bot who helps students manage their ongoing academic life. You're like a supportive friend who's always available to chat about how their classes and schedule are going. keep your response output to less than 600 characters per response, only exception is the full summary which will be less than 1000 characters.
 
 ## STUDENT CONTEXT
 ${contextInfo}
@@ -512,6 +513,7 @@ if (lastUserMessage) {
     ? createPostOnboardingPrompt(contextInfo)
     : createOnboardingPrompt(contextInfo)
 
+
   const systemPrompt = `
   ${basePrompt}
 
@@ -522,6 +524,20 @@ if (lastUserMessage) {
   - Do NOT invent course names, credits, or requirements
   - If no course information is provided, say you don’t have enough data
   `
+
+  // Onboarding-only tool: Fred calls this when the conversation is complete and schedule should be generated
+  const onboardingTools = onboardingCompleted
+    ? undefined
+    : {
+        complete_onboarding: tool({
+          description:
+            'Call this when the student has agreed to their schedule and you are ready to generate it. Only call after you have provided a summary and the student expressed satisfaction. Do NOT pass any message - call with empty object.',
+          inputSchema: z.object({}),
+          execute: async () => ({}),
+        }),
+      }
+
+
   // Generate streaming response using Gemini Flash 2.5
   const result = streamText({
     model: withTracing(google('gemini-2.5-flash'), phClient, {
@@ -538,6 +554,7 @@ if (lastUserMessage) {
     }),
     system: systemPrompt,
     messages: coreMessages,
+    tools: onboardingTools,
     onFinish: async () => {
       await phClient.flush()
     },
