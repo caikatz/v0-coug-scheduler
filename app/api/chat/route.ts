@@ -471,7 +471,7 @@ if (lastUserMessage) {
 }
 
   // Convert messages to the format expected by AI SDK using the built-in converter
-  const coreMessages = convertToModelMessages(messages)
+  const coreMessages = await convertToModelMessages(messages)
 
   // Build context string for system prompt
   let contextInfo = ''
