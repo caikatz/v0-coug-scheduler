@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react'
 import { z } from 'zod'
 import { saveToStorage, loadFromStorage, STORAGE_KEYS } from './storage-utils'
+
+const CALENDAR_URLS_SCHEMA = z.object({
+  icsUrls: z.array(z.string().min(1)),
+})
+type CalendarUrlsState = z.infer<typeof CALENDAR_URLS_SCHEMA>
 import {
   SurveyStateSchema,
   ScheduleStateSchema,
@@ -156,11 +161,19 @@ export function useScheduleState() {
     return scheduleState.nextTaskId
   }, [setScheduleState, scheduleState.nextTaskId])
 
+  const setNextTaskId = useCallback(
+    (id: number) => {
+      setScheduleState((prev) => ({ ...prev, nextTaskId: id }))
+    },
+    [setScheduleState]
+  )
+
   return {
     ...scheduleState,
     setScheduleState,
     updateScheduleItems,
     incrementTaskId,
+    setNextTaskId,
   }
 }
 
@@ -290,5 +303,56 @@ export function useNavigationState() {
     setCurrentDate,
     setSelectedDay,
     setCurrentView,
+  }
+}
+
+const DEFAULT_CALENDAR_URLS: CalendarUrlsState = {
+  icsUrls: [],
+}
+
+/**
+ * Hook for calendar ICS URLs persistence
+ */
+export function useCalendarUrls() {
+  const [state, setState] = useLocalStorageState<CalendarUrlsState>(
+    STORAGE_KEYS.CALENDAR_URLS,
+    DEFAULT_CALENDAR_URLS,
+    CALENDAR_URLS_SCHEMA
+  )
+
+  const addCalendarUrl = useCallback(
+    (url: string) => {
+      const trimmed = url.trim()
+      if (!trimmed || state.icsUrls.includes(trimmed)) return
+      setState((prev) => ({
+        ...prev,
+        icsUrls: [...prev.icsUrls, trimmed],
+      }))
+    },
+    [state.icsUrls, setState]
+  )
+
+  const removeCalendarUrl = useCallback(
+    (url: string) => {
+      setState((prev) => ({
+        ...prev,
+        icsUrls: prev.icsUrls.filter((u) => u !== url),
+      }))
+    },
+    [setState]
+  )
+
+  const setCalendarUrls = useCallback(
+    (urls: string[]) => {
+      setState((prev) => ({ ...prev, icsUrls: urls }))
+    },
+    [setState]
+  )
+
+  return {
+    icsUrls: state.icsUrls,
+    addCalendarUrl,
+    removeCalendarUrl,
+    setCalendarUrls,
   }
 }

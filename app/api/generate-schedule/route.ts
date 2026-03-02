@@ -1,6 +1,6 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateObject } from 'ai'
-import { AIGeneratedScheduleSchema } from '@/lib/schemas'
+import { AIGeneratedScheduleSchema, ScheduleItems } from '@/lib/schemas'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 
@@ -32,6 +32,7 @@ interface GenerateScheduleRequest {
     role: 'user' | 'assistant'
     parts: Array<{ type: string; text: string }>
   }>
+  existingSchedule?: ScheduleItems
 }
 
 export async function POST(req: Request) {
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
 
   try {
     console.time('request-parsing')
-    const { messages }: GenerateScheduleRequest = await req.json()
+    const { messages, existingSchedule }: GenerateScheduleRequest = await req.json()
     console.timeEnd('request-parsing')
 
     console.log('📝 Number of messages received:', messages.length)
@@ -96,6 +97,19 @@ FORMATTING RULES:
 4. Ensure all time blocks don't overlap within a day
 5. If the student mentioned an activity but not a specific time, make a reasonable assumption based on context
 6. Use the exact names and descriptions provided by the student
+7. Determine if each item is recurring or not for is_recurring. TRUE: Classes, weekly work shifts, recurring meetings, regular gym sessions, etc.; FALSE: Specific assignment due dates, one-time events, single appointments
+
+EXISTING SCHEDULE:
+${existingSchedule ? JSON.stringify(existingSchedule, null, 2) : 'No existing schedule'}
+
+DETERMINE UPDATE TYPE:
+- "none": No schedule changes were discussed in the conversation
+- "partial": Specific changes requested (move a class, add one item, remove something)
+- "full": User wants to rebuild their entire schedule
+
+For "partial" updates, return a 'changes' array specifying each operation.
+For "full" updates, return a complete 'weekly_schedule'.
+For "none", return update_type only.
 
 CONVERSATION:
 ${conversationContext}
@@ -130,6 +144,7 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
     console.timeEnd('ai-api-call')
     console.log('✅ AI generation completed')
     console.log('📋 Generated schedule object keys:', Object.keys(object))
+    console.log('📌 Generated update_type:', object.update_type)
 
     // Cache the result
     scheduleCache.set(cacheKey, { result: object, timestamp: Date.now() })
