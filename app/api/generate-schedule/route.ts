@@ -15,6 +15,17 @@ const phClient = new PostHog(
   { host: 'https://us.i.posthog.com' }
 )
 
+// Simple in-memory cache with 5-minute TTL
+const scheduleCache = new Map<string, { result: any; timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+function getCacheKey(messages: any[]): string {
+  // Create a hash based on message count and last message content
+  const lastMsg = messages[messages.length - 1]
+  const lastText = lastMsg?.parts?.map((p: any) => p.text).join('') || ''
+  return `${messages.length}-${lastText.slice(-100)}`
+}
+
 interface GenerateScheduleRequest {
   messages: Array<{
     id: string
@@ -34,6 +45,15 @@ export async function POST(req: Request) {
     console.timeEnd('request-parsing')
 
     console.log('📝 Number of messages received:', messages.length)
+
+    // Check cache first
+    const cacheKey = getCacheKey(messages)
+    const cached = scheduleCache.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log('✅ Cache hit! Returning cached schedule')
+      console.timeEnd('schedule-generation-total')
+      return Response.json({ success: true, schedule: cached.result })
+    }
 
     console.time('conversation-context-building')
     // Build conversation context from messages
@@ -125,6 +145,10 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
     console.log('✅ AI generation completed')
     console.log('📋 Generated schedule object keys:', Object.keys(object))
     console.log('📌 Generated update_type:', object.update_type)
+
+    // Cache the result
+    scheduleCache.set(cacheKey, { result: object, timestamp: Date.now() })
+    console.log('💾 Cached schedule result')
 
     console.timeEnd('schedule-generation-total')
     console.log('🏁 Schedule generation finished at:', new Date().toISOString())

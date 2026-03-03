@@ -1,20 +1,55 @@
-import {
+import type {
   AIGeneratedSchedule,
   AIScheduleBlock,
   ScheduleItems,
   ScheduleItem,
   ScheduleChange,
-  WSU_SEMESTER
 } from './schemas'
-import { formatTime24To12 } from './schemas'
+import { formatTime24To12, WSU_SEMESTER } from './schemas'
 
-/**
- * Transform AI-generated schedule blocks into ScheduleItems format
- * and assign them to specific dates in the current week
- */
+const ABBREVIATION_MAP: Record<string, string> = {
+  hist: 'history',
+  bio: 'biology',
+  chem: 'chemistry',
+  phys: 'physics',
+  math: 'mathematics',
+  eng: 'english',
+  sci: 'science',
+  comp: 'computer',
+  cs: 'computer science',
+  psych: 'psychology',
+  econ: 'economics',
+  phil: 'philosophy',
+  geo: 'geography',
+  soc: 'sociology',
+  anthro: 'anthropology',
+  calc: 'calculus',
+  stats: 'statistics',
+  comm: 'communications',
+}
+
+function formatDateLocal(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function normalizeTitle(title: string): string {
+  const normalized = title.toLowerCase().trim()
+  const words = normalized.split(/\s+/)
+
+  const expandedWords = words.map((word) => {
+    const cleanWord = word.replace(/[^a-z0-9]/g, '')
+    return ABBREVIATION_MAP[cleanWord] || word
+  })
+
+  return expandedWords.join(' ')
+}
+
 export function transformAIScheduleToItems(
   aiSchedule: AIGeneratedSchedule,
-  weekDates: Date[], // Array of 7 Date objects [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+  weekDates: Date[],
   startingTaskId: number,
   semesterEndDate: string = WSU_SEMESTER.current.end
 ): ScheduleItems {
@@ -39,11 +74,9 @@ export function transformAIScheduleToItems(
   }
 
   let currentTaskId = startingTaskId
-
   const allWeeks = getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
-  allWeeks.pop() // Don't include finals week
+  allWeeks.pop()
 
-  // Process each day's schedule
   for (const daySchedule of aiSchedule.weekly_schedule || []) {
     const dayIndex = dayMap[daySchedule.day]
     if (dayIndex === undefined) continue
@@ -51,20 +84,17 @@ export function transformAIScheduleToItems(
     const dayKey = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dayIndex]
 
     for (const block of daySchedule.blocks) {
-      // Determine which weeks to populate
       const weeksToPopulate = block.is_recurring ? allWeeks : [weekDates]
 
       for (const week of weeksToPopulate) {
         const dateForDay = week[dayIndex]
-        const dueDateString = dateForDay.toISOString().split('T')[0] // YYYY-MM-DD
+        const dueDateString = formatDateLocal(dateForDay)
 
-        const scheduleItem = convertBlockToItem (
-        block,
-        currentTaskId,
-        dueDateString
-      )
-      scheduleItems[dayKey].push(scheduleItem)
-      currentTaskId++
+        const scheduleItem = convertBlockToItem(block, currentTaskId, dueDateString)
+        if (scheduleItem) {
+          scheduleItems[dayKey].push(scheduleItem)
+          currentTaskId++
+        }
       }
     }
   }
@@ -72,20 +102,14 @@ export function transformAIScheduleToItems(
   return scheduleItems
 }
 
-/**
- * Get all weeks from current week until semester end
- * Returns array of week arrays (each week is 7 Date objects)
- */
 function getAllWeeksUntilSemesterEnd(
   currentWeekDates: Date[],
   semesterEndDate: string
 ): Date[][] {
   const weeks: Date[][] = []
   const endDate = new Date(semesterEndDate)
-
-  // Start with current week
   let weekStart = new Date(currentWeekDates[0])
-  
+
   while (weekStart <= endDate) {
     const week: Date[] = []
     for (let i = 0; i < 7; i++) {
@@ -93,31 +117,26 @@ function getAllWeeksUntilSemesterEnd(
       day.setDate(weekStart.getDate() + i)
       week.push(day)
     }
-    weeks.push(week)
 
-    // Move to next week
+    weeks.push(week)
     weekStart.setDate(weekStart.getDate() + 7)
   }
-  
+
   return weeks
 }
 
-/**
- * Convert a single AI schedule block to a ScheduleItem
- */
 function convertBlockToItem(
   block: AIScheduleBlock,
   taskId: number,
   dueDate: string
-): ScheduleItem {
-  // Convert 24-hour times to 12-hour format
+): ScheduleItem | null {
+  if (!block.start_time || !block.end_time) {
+    return null
+  }
+
   const startTime12 = formatTime24To12(block.start_time)
   const endTime12 = formatTime24To12(block.end_time)
-
-  // Determine priority based on block type
   const priority = getPriorityForBlockType(block.type)
-
-  // Build title with type context if needed
   const title = buildTitle(block)
 
   return {
@@ -130,9 +149,6 @@ function convertBlockToItem(
   }
 }
 
-/**
- * Determine priority level based on block type
- */
 function getPriorityForBlockType(
   type: AIScheduleBlock['type']
 ): 'high' | 'medium' | 'low' {
@@ -151,13 +167,9 @@ function getPriorityForBlockType(
   }
 }
 
-/**
- * Build a descriptive title for the schedule item
- */
 function buildTitle(block: AIScheduleBlock): string {
   let title = block.title
 
-  // Add location if provided and not already in title
   if (
     block.location &&
     !title.toLowerCase().includes(block.location.toLowerCase())
@@ -168,17 +180,18 @@ function buildTitle(block: AIScheduleBlock): string {
   return title
 }
 
-/**
- * Clear all tasks for the current week dates and merge new schedule
- */
+function createDedupeKey(item: ScheduleItem, day: string): string {
+  const normalizedTitle = normalizeTitle(item.title)
+  const time = item.time || 'no-time'
+  return `${normalizedTitle}|${day}|${time}`
+}
+
 export function mergeScheduleForWeek(
   existingSchedule: ScheduleItems,
   newSchedule: ScheduleItems,
   weekDates: Date[]
 ): ScheduleItems {
-  const weekDateStrings = weekDates.map(
-    (date) => date.toISOString().split('T')[0]
-  )
+  const weekDateStrings = weekDates.map((date) => formatDateLocal(date))
 
   const clearedSchedule: ScheduleItems = {
     Mon: [],
@@ -190,7 +203,6 @@ export function mergeScheduleForWeek(
     Sun: [],
   }
 
-  // For each day, keep only tasks that are NOT in the current week
   const days: Array<keyof ScheduleItems> = [
     'Mon',
     'Tue',
@@ -202,28 +214,36 @@ export function mergeScheduleForWeek(
   ]
 
   for (const day of days) {
-    clearedSchedule[day] = (existingSchedule[day] || []).filter((task) => {
-      // Keep tasks with no dueDate (legacy tasks)
+    const otherWeekTasks = (existingSchedule[day] || []).filter((task) => {
       if (!task.dueDate) return true
-      // Keep tasks from other weeks
       return !weekDateStrings.includes(task.dueDate)
     })
 
-    // Add new schedule items for this day
-    clearedSchedule[day].push(...(newSchedule[day] || []))
+    const newItemKeys = new Set<string>()
+    const deduplicatedNewItems: ScheduleItem[] = []
+
+    for (const newItem of newSchedule[day] || []) {
+      const key = createDedupeKey(newItem, day)
+      if (!newItemKeys.has(key)) {
+        newItemKeys.add(key)
+        deduplicatedNewItems.push(newItem)
+      }
+    }
+
+    clearedSchedule[day] = [...otherWeekTasks, ...deduplicatedNewItems]
   }
 
   return clearedSchedule
-  }
+}
 
-  export function applyScheduleChanges(
+export function applyScheduleChanges(
   existingSchedule: ScheduleItems,
   changes: ScheduleChange[],
   weekDates: Date[],
   startingTaskId: number,
-  semesterEndDate: string
-  ): ScheduleItems {
-    const updatedSchedule: ScheduleItems = {
+  semesterEndDate: string = WSU_SEMESTER.current.end
+): ScheduleItems {
+  const updatedSchedule: ScheduleItems = {
     Mon: [...(existingSchedule.Mon || [])],
     Tue: [...(existingSchedule.Tue || [])],
     Wed: [...(existingSchedule.Wed || [])],
@@ -251,16 +271,17 @@ export function mergeScheduleForWeek(
 
     switch (change.operation) {
       case 'remove':
-        // Remove all items matching the title (across all weeks if recurring)
         if (change.match_title) {
           updatedSchedule[dayKey] = updatedSchedule[dayKey].filter(
-            (item) => !item.title.toLowerCase().includes(change.match_title!.toLowerCase())
+            (item) =>
+              !item.title
+                .toLowerCase()
+                .includes(change.match_title!.toLowerCase())
           )
         }
         break
 
       case 'add':
-        // Add new item(s) - handle recurring vs one-time
         if (change.item) {
           const allWeeks = change.item.is_recurring
             ? getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
@@ -270,28 +291,33 @@ export function mergeScheduleForWeek(
 
           for (const week of allWeeks) {
             const dateForDay = week[dayIndex]
-            const dueDateString = dateForDay.toISOString().split('T')[0]
+            const dueDateString = formatDateLocal(dateForDay)
 
             const newItem = convertBlockToItem(
               change.item,
               currentTaskId,
               dueDateString
             )
-            updatedSchedule[dayKey].push(newItem)
-            currentTaskId++
+
+            if (newItem) {
+              updatedSchedule[dayKey].push(newItem)
+              currentTaskId++
+            }
           }
         }
         break
 
       case 'modify':
-        // Find matching items and update them
         if (change.match_title && change.item) {
           updatedSchedule[dayKey] = updatedSchedule[dayKey].map((item) => {
-            if (item.title.toLowerCase().includes(change.match_title!.toLowerCase())) {
-              // Update the item with new properties
+            if (
+              item.title
+                .toLowerCase()
+                .includes(change.match_title!.toLowerCase())
+            ) {
               const startTime12 = formatTime24To12(change.item!.start_time)
               const endTime12 = formatTime24To12(change.item!.end_time)
-              
+
               return {
                 ...item,
                 title: buildTitle(change.item!),
@@ -301,12 +327,21 @@ export function mergeScheduleForWeek(
             }
             return item
           })
-          }
+        }
         break
     }
   }
-      // Sort each day's items by time
-  const dayKeys: Array<keyof ScheduleItems> = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+  const dayKeys: Array<keyof ScheduleItems> = [
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ]
+
   for (const day of dayKeys) {
     updatedSchedule[day].sort((a, b) => {
       if (!a.time) return 1
