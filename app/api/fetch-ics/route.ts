@@ -47,9 +47,18 @@ export async function POST(req: Request) {
     })
 
     if (!response.ok) {
+      const status = response.status
+      const message =
+        status === 403
+          ? 'Calendar link is private or restricted. Use a public iCal link or check that the link works from this network.'
+          : status === 404
+            ? 'Calendar URL not found. Check the link or try again later.'
+            : status >= 500
+              ? 'Calendar server error. Try again later.'
+              : `Could not fetch calendar (${status}). The link may be invalid or restricted.`
       return NextResponse.json(
-        { success: false, error: `Failed to fetch calendar (${response.status})` },
-        { status: 400 }
+        { success: false, error: message },
+        { status: 502 }
       )
     }
 
@@ -69,12 +78,20 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     console.error('ICS fetch error:', err)
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === 'TimeoutError' || err.message?.includes('abort'))
+    const isNetwork =
+      err instanceof TypeError && err.message?.includes('fetch')
+    const message = isTimeout
+      ? 'Request timed out. The calendar server may be slow or unreachable.'
+      : isNetwork
+        ? 'Network error. Check your connection and that the calendar URL is reachable.'
+        : err instanceof Error
+          ? err.message
+          : 'Failed to fetch or parse calendar.'
     return NextResponse.json(
-      {
-        success: false,
-        error:
-          err instanceof Error ? err.message : 'Failed to fetch or parse calendar',
-      },
+      { success: false, error: message },
       { status: 500 }
     )
   }
