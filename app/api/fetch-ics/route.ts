@@ -41,7 +41,9 @@ export async function POST(req: Request) {
 
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'CougScheduler/1.0 (calendar-sync)',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; rv:91.0) Gecko/20100101 Firefox/91.0',
+        Accept: 'text/calendar, text/plain, */*',
       },
       signal: AbortSignal.timeout(10000),
     })
@@ -52,7 +54,7 @@ export async function POST(req: Request) {
         status === 403
           ? 'Calendar link is private or restricted. Use a public iCal link or check that the link works from this network.'
           : status === 404
-            ? 'Calendar URL not found. Check the link or try again later.'
+            ? 'Calendar could not be loaded (404). Many calendar links only work in a browser—try making the calendar public and using its public iCal link, or use a calendar that allows public export.'
             : status >= 500
               ? 'Calendar server error. Try again later.'
               : `Could not fetch calendar (${status}). The link may be invalid or restricted.`
