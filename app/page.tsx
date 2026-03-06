@@ -57,7 +57,7 @@ import {
   mergeScheduleForWeek,
   applyScheduleChanges,
 } from '@/lib/schedule-transformer'
-import { clearAllStorage } from '@/lib/storage-utils'
+import { clearAllStorage, STORAGE_KEYS } from '@/lib/storage-utils'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = [
@@ -232,6 +232,8 @@ export default function ScheduleApp() {
   const [pendingAnswer, setPendingAnswer] = useState<string>('')
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [showCalendarDialog, setShowCalendarDialog] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteDontAskAgain, setDeleteDontAskAgain] = useState(false)
   const [icsInputValue, setIcsInputValue] = useState('')
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false)
   const [calendarSyncError, setCalendarSyncError] = useState<string | null>(null)
@@ -861,6 +863,67 @@ export default function ScheduleApp() {
       repeatType: 'never',
       repeatDays: [],
     })
+  }
+
+  function performDeleteTask() {
+    if (!editingTask) return
+    const editingTaskWithRepeat = editingTask as ScheduleItem & {
+      repeatGroupId?: number
+    }
+    const repeatGroupId = editingTaskWithRepeat.repeatGroupId
+    const idsToRemove = repeatGroupId
+      ? (() => {
+          const ids: number[] = []
+          DAYS.forEach((day) => {
+            (scheduleItems[day] || []).forEach((item) => {
+              const ir = item as ScheduleItem & { repeatGroupId?: number }
+              if (ir.repeatGroupId === repeatGroupId) ids.push(ir.id)
+            })
+          })
+          return ids
+        })()
+      : [editingTask.id]
+
+    updateScheduleItems((items) => {
+      const result = { ...items }
+      DAYS.forEach((day) => {
+        result[day] = (result[day] || []).filter(
+          (item) => !idsToRemove.includes(item.id)
+        )
+      })
+      return result
+    })
+
+    setShowDeleteConfirm(false)
+    setShowTaskEditor(false)
+    setEditingTask(null)
+    setTaskFormErrors([])
+    setTaskForm({
+      name: '',
+      startTime: '',
+      endTime: '',
+      dueDate: '',
+      priority: 'medium',
+      repeatType: 'never',
+      repeatDays: [],
+    })
+  }
+
+  function handleDeleteTask() {
+    if (!editingTask) return
+    if (typeof window !== 'undefined' && localStorage.getItem(STORAGE_KEYS.DELETE_TASK_DONT_ASK) === 'true') {
+      performDeleteTask()
+      return
+    }
+    setDeleteDontAskAgain(false)
+    setShowDeleteConfirm(true)
+  }
+
+  function handleConfirmDelete() {
+    if (deleteDontAskAgain && typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.DELETE_TASK_DONT_ASK, 'true')
+    }
+    performDeleteTask()
   }
 
   function handleReset() {
@@ -1595,19 +1658,72 @@ export default function ScheduleApp() {
             )}
           </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1 bg-transparent"
-              onClick={() => setShowTaskEditor(false)}
-            >
-              Cancel
-            </Button>
-            <Button className="flex-1" onClick={handleSaveTask}>
-              {editingTask ? 'Update Task' : 'Add Task'}
-            </Button>
+          <div className="flex flex-col gap-3 pt-4">
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 bg-transparent"
+                onClick={() => setShowTaskEditor(false)}
+              >
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleSaveTask}>
+                {editingTask ? 'Update Task' : 'Add Task'}
+              </Button>
+            </div>
+            {editingTask && (
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleDeleteTask}
+              >
+                Delete Task
+              </Button>
+            )}
           </div>
         </div>
+
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Task</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to permanently delete this task?
+              </DialogDescription>
+              {editingTask && ((editingTask as ScheduleItem & { repeatGroupId?: number }).repeatGroupId ?? (taskForm.repeatType && taskForm.repeatType !== 'never')) && (
+                <p className="text-sm text-amber-600 dark:text-amber-500 mt-2">
+                  All instances of this repeating task will be deleted as well.
+                </p>
+              )}
+            </DialogHeader>
+            <div className="flex items-center gap-2 py-2">
+              <input
+                type="checkbox"
+                id="delete-dont-ask"
+                checked={deleteDontAskAgain}
+                onChange={(e) => setDeleteDontAskAgain(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
+              <label
+                htmlFor="delete-dont-ask"
+                className="text-sm text-muted-foreground cursor-pointer"
+              >
+                Don&apos;t ask me again
+              </label>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleConfirmDelete}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
