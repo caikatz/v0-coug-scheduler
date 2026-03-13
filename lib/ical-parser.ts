@@ -4,7 +4,7 @@
  */
 
 import type { ScheduleItem } from './schemas'
-import { formatTime24To12 } from './schemas'
+import { formatTime24To12 } from './utils'
 
 export interface ICalEvent {
   uid: string

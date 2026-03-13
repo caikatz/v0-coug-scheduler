@@ -1,286 +1,569 @@
-// import { DAYS, SCHEDULING_AI } from '@/app/lib/constants'
-// import Image from 'next/image'
-// import { Button } from '@/ui/components/button.js'
-// import {
-//   ChevronRight,
-//   ArrowLeft,
-//   Send,
-//   AlertCircle,
-// } from 'lucide-react'
+'use client'
 
-// import {isGeneratingSchedule, isUpdatingCalendar, expandedCalendar, scheduleItems, messages, showReturnToHomeButton, error, isLoading, inputText, textareaHasOverflow, textareaRef, messagesEndRef, handleBackToMain, handleTextareaInput, handleKeyPress, handleSendMessage } from '../app/page.tsx'
+import React, { useState, useRef, useEffect } from 'react'
+import Image from 'next/image'
+import { ArrowLeft, Send, AlertCircle, ChevronRight } from 'lucide-react'
+import { Button } from '@/ui/components/button'
+import { DAYS, SCHEDULING_AI, WSU_SEMESTER } from '@/lib/constants'
+import { useAIChat } from '@/lib/ai-chat-hook'
+import { getWeekDates } from '@/lib/utils'
+import { detectOverlaps } from '@/lib/schedule-utils'
+import {
+  transformAIScheduleToItems,
+  mergeScheduleForWeek,
+  applyScheduleChanges,
+} from '@/lib/schedule-transformer'
+import type { ScheduleItems } from '@/lib/schemas'
 
-// const ChatView = () => {
-// return (
-//       <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
-//         {/* Loading Overlay */}
-//         {isGeneratingSchedule && (
-//           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-//             <div className="bg-card rounded-2xl p-8 shadow-2xl border border-border flex flex-col items-center gap-4">
-//               <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-//               <div className="text-center">
-//                 <h3 className="font-semibold text-lg text-foreground mb-1">
-//                   Generating Your Schedule
-//                 </h3>
-//                 <p className="text-sm text-muted-foreground">
-//                   Analyzing your conversation with Fred...
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-//         )}
+interface ChatViewProps {
+  chatSessionKey: number
+  scheduleItems: ScheduleItems
+  updateScheduleItems: (updater: (items: ScheduleItems) => ScheduleItems) => void
+  nextTaskId: number
+  incrementTaskId: () => void
+  currentDate: Date | string
+  onboardingCompleted: boolean
+  setOnboardingCompleted: (value: boolean) => void
+  onNavigateToMain: () => void
+}
 
-//         <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-muted/40 to-muted/20 border-b border-border/50 flex-shrink-0">
-//           <Button
-//             variant="ghost"
-//             size="sm"
-//             onClick={handleBackToMain}
-//             className="h-8 w-8 p-0"
-//           >
-//             <ArrowLeft className="h-4 w-4" />
-//           </Button>
-//           <div className="flex items-center gap-3">
-//             <div className="w-10 h-10 rounded-full bg-red-700 flex items-center justify-center overflow-hidden">
-//               <Image
-//                 src="/images/butch-cougar.png"
-//                 alt="Butch the Cougar"
-//                 width={32}
-//                 height={32}
-//                 className="object-contain"
-//               />
-//             </div>
-//             <div>
-//               <h1 className="font-semibold text-foreground">
-//                 {SCHEDULING_AI.name}
-//               </h1>
-//               <p className="text-sm text-muted-foreground">
-//                 {SCHEDULING_AI.description}
-//               </p>
-//             </div>
-//           </div>
-//         </div>
+export default function ChatView({
+  chatSessionKey,
+  scheduleItems,
+  updateScheduleItems,
+  nextTaskId,
+  incrementTaskId,
+  currentDate,
+  onboardingCompleted,
+  setOnboardingCompleted,
+  onNavigateToMain,
+}: ChatViewProps) {
+  const currentDateObj = currentDate instanceof Date ? currentDate : new Date(currentDate)
 
-//         {/* Chat Calendar - Live schedule preview - Expandable */}
-//         <div className={`border-b border-border/50 bg-muted/20 flex flex-col ${expandedCalendar ? 'flex-1' : 'flex-shrink-0'}`} style={expandedCalendar ? { height: 'auto' } : { maxHeight: '30vh' }}>
-//           <div className="flex items-center justify-between px-3 py-2">
-//             <div className="flex items-center gap-2">
-//               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">This Week's Schedule</h3>
-//               {isUpdatingCalendar && (
-//                 <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-//               )}
-//             </div>
-//             <Button
-//               variant="ghost"
-//               size="sm"
-//               onClick={() => setExpandedCalendar(!expandedCalendar)}
-//               className="h-6 w-6 p-0"
-//             >
-//               <ChevronRight className={`h-4 w-4 transition-transform ${expandedCalendar ? 'rotate-90' : ''}`} />
-//             </Button>
-//           </div>
-//           <div className="px-3 pb-3 overflow-y-auto flex-1" style={expandedCalendar ? {} : { maxHeight: 'calc(30vh - 2.5rem)' }}>
-//             <div className="grid grid-cols-7 gap-1 text-xs">
-//               {DAYS.map((day, index) => {
-//                 const daySchedule = scheduleItems[day] || []
-//                 const todayDate = new Date()
-//                 const currentDayOfWeek = (todayDate.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
-//                 const isToday = index === currentDayOfWeek
-                
-//                 return (
-//                   <div key={day} className={`flex flex-col gap-1 ${isToday ? 'bg-primary/10 rounded-lg p-1' : ''}`}>
-//                     <div className={`font-semibold text-center pb-1 border-b ${isToday ? 'border-primary text-primary' : 'border-border/30 text-foreground'}`}>
-//                       {day}
-//                     </div>
-//                     <div className="space-y-1 pt-1">
-//                       {daySchedule.length === 0 ? (
-//                         <div className="text-muted-foreground/50 text-center py-2">-</div>
-//                       ) : expandedCalendar ? (
-//                         // Show all items when expanded
-//                         daySchedule.map((item) => (
-//                           <div
-//                             key={item.id}
-//                             className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
-//                             title={`${item.title}\n${item.time || 'No time set'}`}
-//                           >
-//                             <div className="font-medium text-[10px] leading-tight break-words">
-//                               {item.title}
-//                             </div>
-//                             {item.time && (
-//                               <div className="text-muted-foreground text-[9px] leading-tight mt-0.5">
-//                                 {item.time}
-//                               </div>
-//                             )}
-//                           </div>
-//                         ))
-//                       ) : (
-//                         // Show first 4 items when collapsed
-//                         daySchedule.slice(0, 4).map((item) => (
-//                           <div
-//                             key={item.id}
-//                             className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
-//                             title={`${item.title}\n${item.time || 'No time set'}`}
-//                           >
-//                             <div className="font-medium truncate text-[10px] leading-tight">
-//                               {item.title}
-//                             </div>
-//                             {item.time && (
-//                               <div className="text-muted-foreground text-[9px] truncate leading-tight mt-0.5">
-//                                 {item.time.split(' - ')[0]}
-//                               </div>
-//                             )}
-//                           </div>
-//                         ))
-//                       )}
-//                       {!expandedCalendar && daySchedule.length > 4 && (
-//                         <div className="text-muted-foreground/70 text-center text-[9px] pt-1">
-//                           +{daySchedule.length - 4} more
-//                         </div>
-//                       )}
-//                     </div>
-//                   </div>
-//                 )
-//               })}
-//             </div>
-//           </div>
-//         </div>
+  const { messages, isLoading, error, sendMessage } = useAIChat(
+    chatSessionKey,
+    onboardingCompleted
+  )
 
-//         <div className={`${expandedCalendar ? 'hidden' : 'flex-1'} overflow-y-auto p-4 space-y-4 min-h-0`}>
-//           {messages.map((message) => (
-//             <div
-//               key={message.id}
-//               className={`flex ${
-//                 (message.role as string) === 'user'
-//                   ? 'justify-end'
-//                   : 'justify-start'
-//               }`}
-//             >
-//               <div className="flex items-start gap-3 max-w-[80%]">
-//                 {(message.role as string) === 'assistant' && (
-//                   <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
-//                     <Image
-//                       src="/images/butch-cougar.png"
-//                       alt="Fred the Cougar"
-//                       width={24}
-//                       height={24}
-//                       className="object-contain"
-//                     />
-//                   </div>
-//                 )}
-//                 <div
-//                   className={`rounded-2xl px-4 py-3 ${
-//                     (message.role as string) === 'user'
-//                       ? 'bg-primary text-primary-foreground ml-auto'
-//                       : 'bg-muted text-foreground'
-//                   }`}
-//                 >
-//                   <div className="text-sm leading-relaxed whitespace-pre-wrap">
-//                     {(message as { content?: string }).content ||
-//                       message.parts?.map((part, index) => {
-//                         if (part.type === 'text') {
-//                           return <span key={index}>{part.text}</span>
-//                         }
-//                         return null
-//                       })}
-//                   </div>
-//                 </div>
-//                 {(message.role as string) === 'user' && (
-//                   <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
-//                     <span className="text-sm font-medium">You</span>
-//                   </div>
-//                 )}
-//               </div>
-//             </div>
-//           ))}
+  const [inputText, setInputText] = useState('')
+  const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false)
+  const [expandedCalendar, setExpandedCalendar] = useState(false)
+  const [isUpdatingCalendar, setIsUpdatingCalendar] = useState(false)
+  const [textareaHasOverflow, setTextareaHasOverflow] = useState(false)
 
-//           {/* Big red button to return to home when onboarding is complete */}
-//           {showReturnToHomeButton && (
-//             <div className="flex justify-center py-4">
-//               <Button
-//                 size="lg"
-//                 onClick={handleBackToMain}
-//                 className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
-//               >
-//                 ← View your schedule
-//               </Button>
-//             </div>
-//           )}
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-//           {/* Error display */}
-//           {error && (
-//             <div className="flex justify-center">
-//               <div className="rounded-2xl px-4 py-3 bg-red-100 dark:bg-red-900/20 text-red-900 dark:text-red-100 border border-red-200 dark:border-red-800">
-//                 <div className="flex items-center gap-2">
-//                   <AlertCircle className="h-4 w-4" />
-//                   <span className="text-sm">{error.message}</span>
-//                 </div>
-//               </div>
-//             </div>
-//           )}
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
-//           {/* Loading indicator when AI is thinking */}
-//           {isLoading && (
-//             <div className="flex justify-start">
-//               <div className="flex items-start gap-3 max-w-[80%]">
-//                 <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
-//                   <Image
-//                     src="/images/butch-cougar.png"
-//                     alt="Butch the Cougar"
-//                     width={24}
-//                     height={24}
-//                     className="object-contain"
-//                   />
-//                 </div>
-//                 <div className="rounded-2xl px-4 py-3 bg-muted text-foreground">
-//                   <div className="flex items-center gap-2">
-//                     <div className="flex space-x-1">
-//                       <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-//                       <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-//                       <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
-//                     </div>
-//                     <span className="text-sm text-muted-foreground">
-//                       Fred is thinking...
-//                     </span>
-//                   </div>
-//                 </div>
-//               </div>
-//             </div>
-//           )}
-//           <div ref={messagesEndRef} />
-//         </div>
+  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value)
 
-//         <div className="p-4 border-t border-border/50 bg-background flex-shrink-0">
-//           <div className="flex items-end gap-2">
-//             <div className="flex flex-1 relative">
-//               <textarea
-//                 ref={textareaRef}
-//                 value={inputText}
-//                 maxLength={300}
-//                 onChange={handleTextareaInput}
-//                 onKeyPress={handleKeyPress}
-//                 placeholder={
-//                   isLoading
-//                     ? 'Fred is thinking...'
+    // Check if textarea has overflowed to multiple lines
+    // ScrollHeight - Total height of every line in the textbox
+    // ClientHeight - Total VISIBLE height of every line in the textbox
 
-//                     : 'Message Fred the Lion...'
+    if (textareaRef.current) {
+      const hasOverflow = textareaRef.current.scrollHeight > textareaRef.current.clientHeight
+      setTextareaHasOverflow(hasOverflow)
+    }
+  }
 
-//                 }
-//                 disabled={isLoading}
-//                 className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
-//                 rows={1}
-//               />
-//               <Button
-//                 onClick={handleSendMessage}
-//                 disabled={!inputText.trim() || isLoading}
-//                 size="sm"
-//                 className={`absolute ${textareaHasOverflow ? 'right-5' : 'right-2'} bottom-2 h-8 w-8 p-0 rounded-full`}
-//               >
-//                 <Send className="h-4 w-4" />
-//               </Button>
-//             </div>
-//           </div>
-//         </div>
-//       </div>
-//     )
-// }
+  // Auto-scroll when messages change or loading state changes
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages, isLoading])
 
-// export default ChatView
+  // Show return-to-home button when Fred has called complete_onboarding
+  const showReturnToHomeButton = (() => {
+    if (
+      onboardingCompleted ||
+      isLoading ||
+      isGeneratingSchedule ||
+      messages.length < 2
+    ) {
+      return false
+    }
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage?.role !== 'assistant' || !lastMessage.parts?.length) {
+      return false
+    }
+    return lastMessage.parts.some(
+      (part: { type?: string; state?: string }) =>
+        part.type === 'tool-complete_onboarding' &&
+        part.state === 'output-available'
+    )
+  })()
+
+  // Live update chat calendar as Fred suggests schedule items
+  useEffect(() => {
+    // Only if there are messages and AI just finished responding
+    if (messages.length < 2) {
+      return
+    }
+
+    // Check if the last message is from the assistant (Fred just finished responding)
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage || lastMessage.role !== 'assistant') {
+      return
+    }
+
+    // Only trigger when AI is done responding (not while loading)
+    if (isLoading) {
+      return
+    }
+
+    // Debounce the schedule generation to avoid excessive API calls
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log('🔄 Live calendar update triggered - Fred just responded')
+        setIsUpdatingCalendar(true)
+
+        // Call generate-schedule API to get latest schedule
+        const response = await fetch('/api/generate-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages }),
+        })
+
+        const data = await response.json()
+
+        if (data.success && data.schedule) {
+          console.log('✅ Schedule data received, updating calendar')
+
+          // Get current week dates
+          const weekDates = getWeekDates(currentDateObj)
+
+          // Transform AI schedule to ScheduleItems format
+          const transformedSchedule = transformAIScheduleToItems(
+            data.schedule,
+            weekDates,
+            nextTaskId
+          )
+
+          // Merge with existing schedule (deduplicates automatically)
+          const mergedSchedule = mergeScheduleForWeek(
+            scheduleItems,
+            transformedSchedule,
+            weekDates
+          )
+
+          // Check for overlaps before updating
+          const { hasOverlap, conflicts } = detectOverlaps(mergedSchedule)
+
+          if (hasOverlap) {
+            console.warn('⚠️ CRITICAL OVERLAP DETECTED! Calendar will NOT be updated:')
+            conflicts.forEach(conflict => console.warn('  - ' + conflict))
+            // Do not update the schedule - reject the changes
+            return
+          }
+
+          // Update the schedule state (triggers calendar re-render)
+          updateScheduleItems(() => mergedSchedule)
+          console.log('📅 Chat calendar updated with new schedule items')
+        } else {
+          console.log('⚠️ No schedule data in response')
+        }
+      } catch (error) {
+        // Silently fail for live updates
+        console.debug('Failed to update chat calendar:', error)
+      } finally {
+        setIsUpdatingCalendar(false)
+      }
+    }, 300) // Fast debounce - only 300ms delay after Fred responds
+
+    return () => clearTimeout(timeoutId)
+  }, [messages, isLoading])
+
+  async function handleBackToMain() {
+    // Only generate schedule if there's a meaningful conversation (more than just the opening message)
+    if (messages.length > 1) {
+      console.time('frontend-schedule-generation')
+      console.log(
+        '🎯 Frontend: Starting schedule generation with',
+        messages.length,
+        'messages'
+      )
+
+      setIsGeneratingSchedule(true)
+      try {
+        console.time('fetch-api-call')
+        console.log('📡 Frontend: Making API call to /api/generate-schedule')
+
+        // Call the generate-schedule endpoint
+        const response = await fetch('/api/generate-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages,
+            existingSchedule: scheduleItems,
+          }),
+        })
+
+        console.timeEnd('fetch-api-call')
+        console.log('📡 Frontend: API call completed, status:', response.status)
+
+        console.time('response-parsing')
+        const data = await response.json()
+        console.timeEnd('response-parsing')
+
+        console.log('📦 Frontend: Response data success:', data.success)
+
+        if (data.success && data.schedule) {
+          console.time('schedule-processing')
+
+          // Get current week dates
+          const weekDates = getWeekDates(currentDateObj)
+
+          if (data.schedule.update_type === 'none') {
+            // No update - just exit
+            console.log('✅ No schedule changes detected')
+          } else if (data.schedule.update_type === 'partial') {
+            const updated = applyScheduleChanges(
+              scheduleItems,
+              data.schedule.changes || [],
+              weekDates,
+              nextTaskId,
+              WSU_SEMESTER.current.end
+            )
+
+            // Count new tasks added
+            const oldTaskCount = Object.values(scheduleItems).flat().length
+            const newTaskCount = Object.values(updated).flat().length
+            const addedTasks = newTaskCount - oldTaskCount
+
+            updateScheduleItems(() => updated)
+
+            // Increment task ID for new items
+            for (let i = 0; i < addedTasks; i++) {
+              incrementTaskId()
+            }
+          } else if (data.schedule.update_type === 'full') {
+            const transformedSchedule = transformAIScheduleToItems(
+              {
+                update_type: data.schedule.update_type,
+                weekly_schedule: data.schedule.weekly_schedule || [],
+                schedule_summary: data.schedule.schedule_summary,
+                notes: data.schedule.notes,
+              },
+              weekDates,
+              nextTaskId
+            )
+
+            // Full overhaul: replace previous schedule entirely
+            updateScheduleItems(() => transformedSchedule)
+
+            const totalNewTasks = Object.values(transformedSchedule).flat().length
+            for (let i = 0; i < totalNewTasks; i++) {
+              incrementTaskId()
+            }
+          }
+
+          console.timeEnd('schedule-processing')
+          console.log('✅ Frontend: Schedule processing completed')
+
+          if (!onboardingCompleted) {
+            setOnboardingCompleted(true)
+          }
+        }
+      } catch (error) {
+        // Fail silently as requested
+        console.error('❌ Frontend: Failed to generate schedule:', error)
+      } finally {
+        setIsGeneratingSchedule(false)
+        console.timeEnd('frontend-schedule-generation')
+        console.log('🏁 Frontend: Schedule generation process finished')
+      }
+    }
+
+    onNavigateToMain()
+  }
+
+  function handleSendMessage() {
+    if (!inputText.trim() || isLoading) return
+
+    const currentMessage = inputText.trim()
+    setInputText('')
+
+    // Send message using AI SDK integration
+    sendMessage({ text: currentMessage })
+  }
+
+  function handleKeyPress(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
+  return (
+    <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
+      {/* Loading Overlay */}
+      {isGeneratingSchedule && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-card rounded-2xl p-8 shadow-2xl border border-border flex flex-col items-center gap-4">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="text-center">
+              <h3 className="font-semibold text-lg text-foreground mb-1">
+                Generating Your Schedule
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Analyzing your conversation with Fred...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-muted/40 to-muted/20 border-b border-border/50 flex-shrink-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleBackToMain}
+          className="h-8 w-8 p-0"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-700 flex items-center justify-center overflow-hidden">
+            <Image
+              src="/images/butch-cougar.png"
+              alt="Butch the Cougar"
+              width={32}
+              height={32}
+              className="object-contain"
+            />
+          </div>
+          <div>
+            <h1 className="font-semibold text-foreground">
+              {SCHEDULING_AI.name}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {SCHEDULING_AI.description}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Chat Calendar - Live schedule preview - Expandable */}
+      <div className={`border-b border-border/50 bg-muted/20 flex flex-col ${expandedCalendar ? 'flex-1' : 'flex-shrink-0'}`} style={expandedCalendar ? { height: 'auto' } : { maxHeight: '30vh' }}>
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">This Week&apos;s Schedule</h3>
+            {isUpdatingCalendar && (
+              <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpandedCalendar(!expandedCalendar)}
+            className="h-6 w-6 p-0"
+          >
+            <ChevronRight className={`h-4 w-4 transition-transform ${expandedCalendar ? 'rotate-90' : ''}`} />
+          </Button>
+        </div>
+        <div className="px-3 pb-3 overflow-y-auto flex-1" style={expandedCalendar ? {} : { maxHeight: 'calc(30vh - 2.5rem)' }}>
+          <div className="grid grid-cols-7 gap-1 text-xs">
+            {DAYS.map((day, index) => {
+              const daySchedule = scheduleItems[day] || []
+              const todayDate = new Date()
+              const currentDayOfWeek = (todayDate.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
+              const isToday = index === currentDayOfWeek
+
+              return (
+                <div key={day} className={`flex flex-col gap-1 ${isToday ? 'bg-primary/10 rounded-lg p-1' : ''}`}>
+                  <div className={`font-semibold text-center pb-1 border-b ${isToday ? 'border-primary text-primary' : 'border-border/30 text-foreground'}`}>
+                    {day}
+                  </div>
+                  <div className="space-y-1 pt-1">
+                    {daySchedule.length === 0 ? (
+                      <div className="text-muted-foreground/50 text-center py-2">-</div>
+                    ) : expandedCalendar ? (
+                      // Show all items when expanded
+                      daySchedule.map((item) => (
+                        <div
+                          key={item.id}
+                          className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
+                          title={`${item.title}\n${item.time || 'No time set'}`}
+                        >
+                          <div className="font-medium text-[10px] leading-tight break-words">
+                            {item.title}
+                          </div>
+                          {item.time && (
+                            <div className="text-muted-foreground text-[9px] leading-tight mt-0.5">
+                              {item.time}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      // Show first 4 items when collapsed
+                      daySchedule.slice(0, 4).map((item) => (
+                        <div
+                          key={item.id}
+                          className="bg-card border border-border/50 rounded p-1.5 hover:bg-gray-300 transition-colors cursor-pointer"
+                          title={`${item.title}\n${item.time || 'No time set'}`}
+                        >
+                          <div className="font-medium truncate text-[10px] leading-tight">
+                            {item.title}
+                          </div>
+                          {item.time && (
+                            <div className="text-muted-foreground text-[9px] truncate leading-tight mt-0.5">
+                              {item.time.split(' - ')[0]}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                    {!expandedCalendar && daySchedule.length > 4 && (
+                      <div className="text-muted-foreground/70 text-center text-[9px] pt-1">
+                        +{daySchedule.length - 4} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className={`${expandedCalendar ? 'hidden' : 'flex-1'} overflow-y-auto p-4 space-y-4 min-h-0`}>
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={`flex ${
+              (message.role as string) === 'user'
+                ? 'justify-end'
+                : 'justify-start'
+            }`}
+          >
+            <div className="flex items-start gap-3 max-w-[80%]">
+              {(message.role as string) === 'assistant' && (
+                <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <Image
+                    src="/images/butch-cougar.png"
+                    alt="Fred the Cougar"
+                    width={24}
+                    height={24}
+                    className="object-contain"
+                  />
+                </div>
+              )}
+              <div
+                className={`rounded-2xl px-4 py-3 ${
+                  (message.role as string) === 'user'
+                    ? 'bg-primary text-primary-foreground ml-auto'
+                    : 'bg-muted text-foreground'
+                }`}
+              >
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {(message as { content?: string }).content ||
+                    message.parts?.map((part, index) => {
+                      if (part.type === 'text') {
+                        return <span key={index}>{part.text}</span>
+                      }
+                      return null
+                    })}
+                </div>
+              </div>
+              {(message.role as string) === 'user' && (
+                <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                  <span className="text-sm font-medium">You</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Big red button to return to home when onboarding is complete */}
+        {showReturnToHomeButton && (
+          <div className="flex justify-center py-4">
+            <Button
+              size="lg"
+              onClick={handleBackToMain}
+              className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              ← View your schedule
+            </Button>
+          </div>
+        )}
+
+        {/* Error display */}
+        {error && (
+          <div className="flex justify-center">
+            <div className="rounded-2xl px-4 py-3 bg-red-100 dark:bg-red-900/20 text-red-900 dark:text-red-100 border border-red-200 dark:border-red-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">{error.message}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading indicator when AI is thinking */}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="flex items-start gap-3 max-w-[80%]">
+              <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <Image
+                  src="/images/butch-cougar.png"
+                  alt="Butch the Cougar"
+                  width={24}
+                  height={24}
+                  className="object-contain"
+                />
+              </div>
+              <div className="rounded-2xl px-4 py-3 bg-muted text-foreground">
+                <div className="flex items-center gap-2">
+                  <div className="flex space-x-1">
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-2 h-2 bg-current rounded-full animate-bounce"></div>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    Fred is thinking...
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="p-4 border-t border-border/50 bg-background flex-shrink-0">
+        <div className="flex items-end gap-2">
+          <div className="flex flex-1 relative">
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              maxLength={300}
+              onChange={handleTextareaInput}
+              onKeyPress={handleKeyPress}
+              placeholder={
+                isLoading
+                  ? 'Fred is thinking...'
+                  : 'Message Fred the Lion...'
+              }
+              disabled={isLoading}
+              className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              rows={1}
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={!inputText.trim() || isLoading}
+              size="sm"
+              className={`absolute ${textareaHasOverflow ? 'right-5' : 'right-2'} bottom-2 h-8 w-8 p-0 rounded-full`}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

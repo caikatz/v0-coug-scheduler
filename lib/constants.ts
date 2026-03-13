@@ -1,4 +1,6 @@
-export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+/* App-wide constants and types */
+
+export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
 export const MONTHS = [
   'January',
@@ -14,6 +16,13 @@ export const MONTHS = [
   'November',
   'December',
 ]
+
+export const WSU_SEMESTER = {
+  current: {
+    start: '2026-01-12',
+    end: '2026-05-08'
+  }
+}
 
 export const SURVEY_QUESTIONS = [
   {

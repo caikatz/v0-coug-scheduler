@@ -60,8 +60,6 @@ function migrateToV1_0_0(data: unknown): Record<string, unknown> {
   }
 }
 
-export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-
 // Basic enums and constants
 export const PrioritySchema = z.enum(['high', 'medium', 'low'])
 export const MessageSenderSchema = z.enum(['user', 'ai'])
@@ -257,26 +255,6 @@ export type Priority = z.infer<typeof PrioritySchema>
 export type MessageSender = z.infer<typeof MessageSenderSchema>
 export type View = z.infer<typeof ViewSchema>
 
-// Default values
-export const DEFAULT_MESSAGES: Message[] = [
-  {
-    id: new Date().getMilliseconds(),
-    text: "Hey there! I'm Fred, your friendly scheduling buddy! Ready to optimize your schedule and achieve your goals? Let me know how I can help!",
-    sender: 'ai',
-    timestamp: new Date(),
-  },
-]
-
-export const DEFAULT_SCHEDULE_ITEMS: ScheduleItems = {
-  Mon: [],
-  Tue: [],
-  Wed: [],
-  Thu: [],
-  Fri: [],
-  Sat: [],
-  Sun: [],
-}
-
 // Utility functions with Zod validation
 export function validateTaskForm(
   taskForm: unknown
@@ -325,251 +303,6 @@ export function validateUserPreferences(
   }
 }
 
-// Utility functions
-export function getCurrentDayIndex(): number {
-  const today = new Date()
-  return (today.getDay() + 6) % 7
-}
-
-export function calculateSuccessPercentage(
-  scheduleItems: ScheduleItems
-): number {
-  const allTasks = Object.values(scheduleItems).flat()
-  const completedTasks = allTasks.filter((task) => task.completed)
-  const totalTasks = allTasks
-
-  if (totalTasks.length === 0) return 0
-  return Math.round((completedTasks.length / totalTasks.length) * 100)
-}
-
-export function processUserPreferences(
-  surveyAnswers: string[]
-): UserPreferences {
-  // Parse answers with potential notes (format: "answer | Notes: text")
-  const parseAnswer = (answer: string): { value: string; notes?: string } => {
-    if (answer.includes(' | Notes: ')) {
-      const [value, notes] = answer.split(' | Notes: ')
-      return { value, notes }
-    }
-    return { value: answer }
-  }
-
-  const sleepSchedule = parseAnswer(surveyAnswers[2])
-  const studyHabits = parseAnswer(surveyAnswers[4]) // Updated index from 5 to 4
-
-  const preferences = {
-    productiveHours: surveyAnswers[0], // "9:00-17:00"
-    sleepHours: surveyAnswers[1], // "23:00-7:00"
-    sleepScheduleWorking: sleepSchedule.value,
-    sleepScheduleNotes: sleepSchedule.notes,
-    plannerView: 'Daily schedule', // Default value since we removed this question
-    taskBreakdown: surveyAnswers[3], // Updated index from 4 to 3
-    studyHabitsWorking: studyHabits.value,
-    studyHabitsNotes: studyHabits.notes,
-    reminderType: surveyAnswers[5], // Updated index from 6 to 5
-  }
-
-  const validation = validateUserPreferences(preferences)
-  if (validation.success) {
-    return validation.data
-  }
-
-  throw new Error(`Invalid user preferences: ${validation.errors.join(', ')}`)
-}
-
-// Utility function to convert 24-hour format to 12-hour format with AM/PM
-export function formatTime24To12(time24: string): string {
-  const [hours, minutes] = time24.split(':').map(Number)
-  const period = hours >= 12 ? 'PM' : 'AM'
-  const hours12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
-  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`
-}
-
-// Utility function to convert 12-hour format with AM/PM to 24-hour format
-export function convertTo24Hour(time12: string): string {
-  const match = time12.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-  if (!match) return ''
-
-  const [, hours, minutes, period] = match
-  let hour24 = parseInt(hours, 10)
-
-  if (period.toUpperCase() === 'AM' && hour24 === 12) {
-    hour24 = 0
-  } else if (period.toUpperCase() === 'PM' && hour24 !== 12) {
-    hour24 += 12
-  }
-
-  return `${hour24.toString().padStart(2, '0')}:${minutes}`
-}
-
-export function createNewTask(
-  taskForm: TaskForm,
-  nextTaskId: number
-): ScheduleItem {
-  const hasTimeRange = taskForm.startTime && taskForm.endTime
-
-  const scheduleItem: ScheduleItem = {
-    id: nextTaskId,
-    title: taskForm.name,
-    priority: taskForm.priority,
-    completed: false,
-  }
-
-  if (hasTimeRange) {
-    const startTime12 = formatTime24To12(taskForm.startTime!)
-    const endTime12 = formatTime24To12(taskForm.endTime!)
-    scheduleItem.time = `${startTime12} - ${endTime12}`
-  }
-
-  return scheduleItem
-}
-
-/** Map getDay() (0=Sun, 1=Mon, ...) to our day keys */
-const GET_DAY_KEY: Record<number, (typeof DAYS)[number]> = {
-  0: 'Sun',
-  1: 'Mon',
-  2: 'Tue',
-  3: 'Wed',
-  4: 'Thu',
-  5: 'Fri',
-  6: 'Sat',
-}
-
-/** Parse YYYY-MM-DD as local date and return day key (avoids UTC parse bugs) */
-function dateStringToDayKey(dateStr: string): (typeof DAYS)[number] {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const localDate = new Date(y, (m ?? 1) - 1, d ?? 1)
-  return GET_DAY_KEY[localDate.getDay()] ?? 'Mon'
-}
-
-/**
- * Expand a recurring task into multiple ScheduleItems.
- * Returns items grouped by day key for merging into schedule.
- */
-export function expandRecurringTasks(
-  taskForm: TaskForm,
-  nextTaskId: number,
-  semesterEndDate: string
-): { itemsByDay: ScheduleItems; nextId: number } {
-  const baseItem = createNewTask(taskForm, nextTaskId)
-  const startDateStr = taskForm.dueDate
-  const repeatType = taskForm.repeatType ?? 'never'
-  const repeatDays = taskForm.repeatDays ?? []
-
-  const itemsByDay: ScheduleItems = {
-    Mon: [],
-    Tue: [],
-    Wed: [],
-    Thu: [],
-    Fri: [],
-    Sat: [],
-    Sun: [],
-  }
-
-  if (!startDateStr || repeatType === 'never') {
-    let dueDateStr: string
-    let dayKey: (typeof DAYS)[number]
-    if (startDateStr) {
-      dueDateStr = startDateStr
-      dayKey = dateStringToDayKey(startDateStr)
-    } else {
-      const now = new Date()
-      dueDateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
-      dayKey = GET_DAY_KEY[now.getDay()] ?? 'Mon'
-    }
-    const item: ScheduleItem = {
-      ...baseItem,
-      dueDate: dueDateStr,
-    }
-    itemsByDay[dayKey].push(item)
-    return { itemsByDay, nextId: nextTaskId + 1 }
-  }
-
-  const [sy, sm, sd] = startDateStr.split('-').map(Number)
-  const startDate = new Date(sy, sm - 1, sd)
-  const [ey, em, ed] = semesterEndDate.split('-').map(Number)
-  const endDate = new Date(ey, em - 1, ed)
-  if (startDate > endDate) return { itemsByDay, nextId: nextTaskId }
-
-  const repeatGroupId = nextTaskId
-  let currentId = nextTaskId
-
-  const addItemForDate = (date: Date) => {
-    const dueDateStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`
-    const dayKey = GET_DAY_KEY[date.getDay()] ?? 'Mon'
-    const item: ScheduleItem & { repeatType?: string; repeatDays?: number[]; repeatGroupId?: number } = {
-      ...baseItem,
-      id: currentId,
-      dueDate: dueDateStr,
-      repeatType,
-      repeatDays: repeatDays.length > 0 ? repeatDays : undefined,
-      repeatGroupId,
-    }
-    itemsByDay[dayKey].push(item)
-    currentId++
-  }
-
-  if (repeatType === 'daily') {
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      addItemForDate(new Date(d))
-    }
-  } else if (repeatType === 'weekly') {
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 7)) {
-      addItemForDate(new Date(d))
-    }
-  } else if (repeatType === 'monthly') {
-    const dayOfMonth = startDate.getDate()
-    let d = new Date(startDate)
-    while (d <= endDate) {
-      addItemForDate(new Date(d))
-      const nextMonth = d.getMonth() + 1
-      const lastDayOfNext = new Date(d.getFullYear(), nextMonth + 1, 0).getDate()
-      d = new Date(d.getFullYear(), nextMonth, Math.min(dayOfMonth, lastDayOfNext))
-    }
-  } else if (repeatType === 'custom' && repeatDays.length > 0) {
-    const selectedDaysSet = new Set(repeatDays)
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      if (selectedDaysSet.has(d.getDay())) {
-        addItemForDate(new Date(d))
-      }
-    }
-  }
-
-  return { itemsByDay, nextId: currentId }
-}
-
-export function updateTaskCompletion(
-  scheduleItems: ScheduleItems,
-  taskId: number,
-  dayKey: string
-): ScheduleItems {
-  return {
-    ...scheduleItems,
-    [dayKey]: (scheduleItems[dayKey] || []).map((task) =>
-      task.id === taskId ? { ...task, completed: !task.completed } : task
-    ),
-  }
-}
-
-export function createChatMessage(
-  text: string,
-  sender: MessageSender
-): Message {
-  const message = {
-    id: Date.now(),
-    text: text.trim(),
-    sender,
-    timestamp: new Date(),
-  }
-
-  const validation = validateMessage(message)
-  if (validation.success) {
-    return validation.data
-  }
-
-  throw new Error(`Invalid message: ${validation.errors.join(', ')}`)
-}
-
 // AI-generated schedule schemas
 export const AIScheduleBlockSchema = z.object({
   start_time: z.string().regex(/^\d{2}:\d{2}$/), // "09:00"
@@ -604,8 +337,6 @@ export const AIScheduleSummarySchema = z.object({
   buffer_hours: z.number(),
 })
 
-
-
 export const ScheduleUpdateTypeSchema = z.enum(['none', 'partial', 'full'])
 
 export const ScheduleChangeSchema = z.object({
@@ -624,14 +355,6 @@ export const AIGeneratedScheduleSchema = z.object({
   schedule_summary: AIScheduleSummarySchema,
   notes: z.array(z.string()),
 })
-
-
-export const WSU_SEMESTER = {
-  current: {
-    start: '2026-01-12',
-    end: '2026-05-08'
-  }
-}
 
 // Type exports for AI schedule
 export type AIScheduleBlock = z.infer<typeof AIScheduleBlockSchema>
