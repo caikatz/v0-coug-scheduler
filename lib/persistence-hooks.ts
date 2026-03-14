@@ -11,8 +11,6 @@ import {
   ScheduleStateSchema,
   ChatStateSchema,
   NavigationStateSchema,
-  DEFAULT_MESSAGES,
-  DEFAULT_SCHEDULE_ITEMS,
   type SurveyState,
   type ScheduleState,
   type ChatState,
@@ -21,6 +19,7 @@ import {
   type Message,
   type ScheduleItems,
 } from './schemas'
+import { DEFAULT_MESSAGES, DEFAULT_SCHEDULE_ITEMS } from './schedule-utils'
 
 // Default states moved outside hooks to prevent re-creation on each render
 const DEFAULT_SURVEY_STATE: SurveyState = {

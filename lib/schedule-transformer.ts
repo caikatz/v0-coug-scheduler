@@ -5,7 +5,8 @@ import type {
   ScheduleItem,
   ScheduleChange,
 } from './schemas'
-import { formatTime24To12, WSU_SEMESTER } from './schemas'
+import { formatTime24To12, formatDateLocal } from './utils'
+import { WSU_SEMESTER } from './constants'
 
 const ABBREVIATION_MAP: Record<string, string> = {
   hist: 'history',
@@ -26,13 +27,6 @@ const ABBREVIATION_MAP: Record<string, string> = {
   calc: 'calculus',
   stats: 'statistics',
   comm: 'communications',
-}
-
-function formatDateLocal(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 export function normalizeTitle(title: string): string {
