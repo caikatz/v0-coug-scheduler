@@ -9,6 +9,32 @@ import { useAIChat } from '@/lib/ai-chat-hook'
 import { getWeekDates, formatDateLocal } from '@/lib/utils'
 import type { ScheduleItems } from '@/lib/schemas'
 
+function renderMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  // Match **bold**, *italic*, and plain text segments
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    if (match[2]) {
+      parts.push(<strong key={match.index}>{match[2]}</strong>)
+    } else if (match[3]) {
+      parts.push(<em key={match.index}>{match[3]}</em>)
+    }
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts
+}
+
 interface ChatViewProps {
   chatSessionKey: number
   scheduleItems: ScheduleItems
@@ -86,6 +112,10 @@ export default function ChatView({
     setInputText(e.target.value)
 
     if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      const lineHeight = parseInt(getComputedStyle(textareaRef.current).lineHeight) || 20
+      const maxHeight = lineHeight * 4 + 24 // 4 lines + vertical padding
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, maxHeight)}px`
       const hasOverflow = textareaRef.current.scrollHeight > textareaRef.current.clientHeight
       setTextareaHasOverflow(hasOverflow)
     }
@@ -302,6 +332,10 @@ export default function ChatView({
     const currentMessage = inputText.trim()
     setInputText('')
 
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+
     sendMessage({ text: currentMessage })
   }
 
@@ -482,7 +516,7 @@ export default function ChatView({
                   {(message as { content?: string }).content ||
                     message.parts?.map((part, index) => {
                       if (part.type === 'text') {
-                        return <span key={index}>{part.text}</span>
+                        return <span key={index}>{renderMarkdown(part.text)}</span>
                       }
                       const toolPart = part as ToolUIPart
                       const toolName = getToolNameFromPart(toolPart)
@@ -573,7 +607,7 @@ export default function ChatView({
                   : 'Message Fred the Lion...'
               }
               disabled={isLoading}
-              className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
               rows={1}
             />
             <Button
