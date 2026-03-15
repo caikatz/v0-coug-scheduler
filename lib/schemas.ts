@@ -177,7 +177,7 @@ export const MessageSchema = z.object({
 
 // Schedule items grouped by day
 export const ScheduleItemsSchema = z.record(
-  z.string(), // day key (Mon, Tue, etc.)
+  z.string(), // date key (YYYY-MM-DD)
   z.array(ScheduleItemSchema)
 )
 

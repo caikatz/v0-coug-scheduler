@@ -1,10 +1,6 @@
-// app/api/search-courses/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { formatCoursesForPrompt } from './format-courses'
 import { findRelevantCourses } from './course-search'
-
-// Note: Edge runtime removed - course-embeddings.json is ~58MB, exceeding Edge's ~1-4MB bundle limit.
-// Using Node.js runtime (default) which supports larger bundles.
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,15 +14,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find relevant courses using semantic search
-    const courses = await findRelevantCourses(query, limit)
-
-    // Format for AI prompt (optional)
+    const { courses, scoredCourses } = await findRelevantCourses(query, limit)
     const formattedPrompt = formatCoursesForPrompt(courses)
 
     return NextResponse.json({
       success: true,
       courses,
+      scoredCourses,
       formattedPrompt,
       count: courses.length
     })
@@ -42,7 +36,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Optional: Support GET requests with query params
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
@@ -56,12 +49,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const courses = await findRelevantCourses(query, limit)
+    const { courses, scoredCourses } = await findRelevantCourses(query, limit)
     const formattedPrompt = formatCoursesForPrompt(courses)
 
     return NextResponse.json({
       success: true,
       courses,
+      scoredCourses,
       formattedPrompt,
       count: courses.length
     })

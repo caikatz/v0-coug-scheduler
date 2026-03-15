@@ -2,7 +2,7 @@
 // Run locally then push new course-embeddings.
 console.log('Script started!')
 
-import { embedText } from '@/app/api/vector-encoding/embed'
+import { embedText, EMBEDDING_DIMENSIONS } from '@/app/api/vector-encoding/embed'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -51,7 +51,8 @@ const coursesPath = path.join(__dirname, '..', 'data', 'courses.json')
     process.exit(1)
   }
   
-  console.log(` Found ${courses.length} courses\n`)
+  console.log(` Found ${courses.length} courses`)
+  console.log(` Embedding dimensions: ${EMBEDDING_DIMENSIONS}\n`)
   
   const coursesWithEmbeddings: CourseWithEmbedding[] = []
   

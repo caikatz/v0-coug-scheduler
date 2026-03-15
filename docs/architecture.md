@@ -1,26 +1,35 @@
 
 # Architecture
 
-## 1. What this project does
-This application features a scheduling assistant for Washington State University. It helps students:
+## 1. What This Project Does
+
+This application is a scheduling assistant for Washington State University students. It helps students:
+
 1. Personalize via an onboarding survey (productive hours, sleep habits, task preferences)
 2. Chat with "Fred the Lion" (AI coach) to discuss classes, work, study time, and commitments
-3. Generate a weekly schedule from the conversation
-4. Manage tasks on a calendar (add, edit, complete, view by day)
+3. Search the WSU course catalog using semantic vector search
+4. Build a weekly schedule collaboratively through AI tool calls (create, remove, check conflicts)
+5. Import external calendars via iCal/ICS feeds
+6. Manage tasks on a date-keyed calendar (add, edit, complete, delete, view by day)
+
 The AI uses motivational interviewing to help students realize time constraints and collaboratively build a realistic schedule.
 
 ## 2. Tech Stack
-| **Layer** | **Technology** |
+
+| Layer | Technology |
 | ----- | ---------- |
-| Framework | Next.js 14 (App Router) |
-| UI | React 19, Radix UI, Tailwind CSS |
-| AI | Vercel AI SDK, Google Gemini 2.5 Flash |
-| State | localStorage via custom hooks (no db) |
-| Analytics | PostHog, Vercel Analytics
+| Framework | Next.js (App Router) |
+| UI | React, Radix UI (shadcn/ui), Tailwind CSS |
+| AI | Vercel AI SDK (`streamText`, `generateObject`, tool calling), Google Gemini |
+| Embeddings | `@google/genai` with `gemini-embedding-001` (768 dimensions) |
+| State | localStorage via custom hooks (no database) |
+| Analytics | PostHog, Vercel Analytics |
 | Validation | Zod |
 | Package Manager | pnpm |
 
-## 3. High Level Architecture Diagram
+The Gemini model is configurable in `lib/constants.ts` — supports `gemini-2.5-flash`, `gemini-3-flash-preview`, and `gemini-3.1-flash-lite-preview`.
+
+## 3. High-Level Architecture
 
 ```mermaid
 flowchart TB
@@ -47,141 +56,175 @@ flowchart TB
     subgraph Storage [localStorage via storage-utils.ts]
         S1[survey_state]
         S2[schedule_state]
-        S3[chat_state]
+        S3[fred-chat-messages]
         S4[navigation_state]
     end
 
     subgraph API [API Routes]
-        API1["/api/chat - Streaming AI"]
+        API1["/api/chat - Streaming AI + Tools"]
         API2["/api/generate-schedule - Structured output"]
+        API3["/api/fetch-ics - Calendar import"]
+        API4["/api/vector-encoding - Course search"]
     end
 
     subgraph AI [AI Services]
         G1[Google Gemini]
+        G2[gemini-embedding-001]
     end
 
     Frontend --> State
     State --> Storage
     Frontend --> API1
     Frontend --> API2
+    Frontend --> API3
     API1 --> G1
+    API1 --> API4
     API2 --> G1
+    API4 --> G2
 ```
 
-## 4. Directory Structure and Responsibilities
+## 4. Directory Structure
+
 ```
 app/
   api/
-    chat/
-      route.ts                 # Streaming chat with Fred (Gemini)
-    generate-schedule/
-      route.ts                 # Extracts structured schedule from conversation (Gemini)
+    chat/route.ts                  # Streaming chat with tool calling (Gemini)
+    generate-schedule/route.ts     # Structured schedule extraction (Gemini generateObject)
+    fetch-ics/route.ts             # Server-side ICS calendar fetch (CORS bypass)
+    vector-encoding/
+      route.ts                     # Semantic course search API endpoint
+      course-search.ts             # Cosine similarity search over embeddings
+      embed.ts                     # Text embedding (768-dim via gemini-embedding-001)
+      format-courses.ts            # Course data → prompt formatting
+      data/courses.json            # WSU course catalog (~61K lines)
+      data/course-embeddings.json  # Precomputed embeddings (~14.5M lines)
+      Scripts/
+        generate-embeddings.ts     # Regenerate embeddings script
+        Scrape-WSU-Courses.ps1     # WSU catalog scraper
 
-  globals.css                  # Global styles
-  layout.tsx                   # Root layout, theme setup, PostHog init
-  page.tsx                     # SINGLE PAGE APP – all views are composed here
-  providers.tsx                # App-wide providers (PostHog, etc.)
+  globals.css                      # Global styles + responsive media queries
+  layout.tsx                       # Root layout, theme setup, PostHog init
+  page.tsx                         # Single-page app — all views composed here
+  providers.tsx                    # App-wide providers (PostHog)
 
-components/
-  theme-provider.tsx           # Dark / light mode handling
-  ui/                          # Radix-based UI primitives
-    button.tsx
-    card.tsx
-    dialog.tsx
-    slider.tsx
+ui/
+  views/
+    ChatView.tsx                   # Chat UI, tool-call sync, auto-retry on empty responses
+    MainView.tsx                   # Calendar, week picker, sorted task list, add-task button
+    SurveyView.tsx                 # Onboarding survey (6 questions)
+    TaskEditorView.tsx             # Add/edit/delete tasks with recurring support
+  components/                      # shadcn/ui primitives (button, card, dialog, slider)
+  theme-provider.tsx               # Dark/light mode handling
 
 lib/
-  schemas.ts                   # Zod schemas, types, validation, user preference processing
-  persistence-hooks.ts         # Client state hooks (survey, schedule, chat, navigation)
-  storage-utils.ts             # Local storage helpers (save/load/clear)
-  ai-chat-hook.ts              # useAIChat wrapper; adds context + calls /api/chat
-  schedule-transformer.ts      # AI → ScheduleItems; merge + partial update logic
-  core-utils.ts                # Re-exports for tests (backward compatibility)
-  webhook-service.ts           # UNUSED – legacy n8n webhook integration
+  ai-chat-hook.ts                  # useAIChat — wraps AI SDK useChat with localStorage persistence
+  constants.ts                     # Gemini models, days, months, semester dates, survey questions, AI config
+  ical-parser.ts                   # ICS feed parsing and schedule integration
+  persistence-hooks.ts             # Client state hooks (survey, schedule, chat, navigation)
+  schedule-tools.ts                # Tool input schemas (Zod) + server-side execute functions
+  schedule-transformer.ts          # AI schedule output → ScheduleItems conversion + merging
+  schemas.ts                       # Zod schemas and TypeScript types for all app data
+  storage-utils.ts                 # localStorage helpers (save/load/clear/migrate)
+  utils.ts                         # Date formatting utilities (formatDateLocal, getWeekDates)
+  webhook-service.ts               # UNUSED — legacy n8n webhook integration (not imported)
 ```
 
-## 5. Application Views (All in page.tsx)
-The app is a single-page app with conditional views based on state:
-| **View** | **Trigger** | **Purpose** |
-| ----- | ---------- | ------- |
-| Survey | `showSurvey === true` | 6 Questions -> `userPreferences`
-| Chat | `currentView === 'chat'` | AI Conversation with Fred |
-| Task Editor | `showTaskEditor === true` | Add/Edit Task form |
-| Main | default | Calendar, week picker, task list, Fred button |
+## 5. Application Views
+
+The app is a single-page app with conditional views based on state (all orchestrated in `page.tsx`):
+
+| View | Trigger | Component | Purpose |
+| ---- | ------- | --------- | ------- |
+| Survey | `showSurvey === true` | `SurveyView` | 6-question onboarding → `userPreferences` |
+| Chat | `currentView === 'chat'` | `ChatView` | AI conversation with Fred (tool calling) |
+| Task Editor | `showTaskEditor === true` | `TaskEditorView` | Add/edit/delete individual tasks |
+| Main | default | `MainView` | Calendar, week picker, sorted task list, Fred button |
 
 ## 6. Data Flow
 
-### Survey -> Preferences
+### Survey → Preferences
+
 1. User completes survey; answers stored via `useSurveyState`
-2. `processUserPreferences(surveyAnswers)` (in lib/schemas.ts) maps answers to `UserPreferences`
+2. `processUserPreferences(surveyAnswers)` maps answers to `UserPreferences`
 3. `completeSurvey(preferences)` hides survey and sets `userPreferences`
 
 ### Schedule Data Shape
-- **Internal**: `ScheduleItems` = `Record<'Mon'|'Tue'|...|'Sun', ScheduleItem[]>`
-- **AI output**: `AIScheduleBlock` (24h times, type, title, `is_recurring`) → converted to `ScheduleItem` (12h time, priority, dueDate)
-- Tasks can have `dueDate` (YYYY-MM-DD); tasks without `dueDate` are legacy and shown for all dates
 
-### 7. Gemini Data Flows (Request -> Response)
-
-There are two distinct flows to Google Gemini; each returns data differently.
+- **Storage key**: `ScheduleItems = Record<string, ScheduleItem[]>` where keys are dates in `YYYY-MM-DD` format
+- **AI tool output**: Items created via `create_schedule_items` include `title`, `date`, `start_time` (required) plus optional `end_time`, `type`, `location`, `is_recurring`
+- **AI generateObject output**: `AIScheduleBlock` (24h times, type, title, `is_recurring`) → converted to `ScheduleItem` (12h time, priority, dueDate)
+- Tasks are sorted by start time for display
 
 ---
 
-## 7.1. Chat Flow: Streaming Text from Gemini
+## 7. Gemini Data Flows
 
-Chat uses `streamText` — Gemini returns **text chunks over a stream**. The AI SDK pipes this to the frontend as Server-Sent Events.
+There are three distinct flows to Google Gemini.
+
+### 7.1. Chat Flow: Streaming Text + Tool Calling
+
+Chat uses `streamText` with tools. Gemini can return text chunks, tool call requests, or both across multiple steps (up to 8 steps via `stopWhen: stepCountIs(8)`).
 
 ```mermaid
 sequenceDiagram
     participant User
+    participant ChatView
     participant useAIChat
-    participant useChat
-    participant DefaultChatTransport
     participant API as /api/chat
     participant Gemini
-    participant localStorage
+    participant Tools as schedule-tools.ts
 
-    User->>useAIChat: sendMessage text
-    useAIChat->>useChat: sendMessage via transport
-    useChat->>DefaultChatTransport: POST /api/chat
-    DefaultChatTransport->>API: JSON body: messages, userPreferences, schedule, onboardingCompleted
+    User->>ChatView: sends message
+    ChatView->>useAIChat: sendMessage
+    useAIChat->>API: POST (messages, userPreferences, schedule, nextTaskId)
 
-    API->>API: convertToModelMessages
-    API->>API: Build contextInfo from prefs + schedule
-    API->>API: Pick system prompt (onboarding vs post-onboarding)
-    API->>Gemini: streamText(model, system, messages)
+    API->>API: convertToModelMessages + sanitize alternation
+    API->>API: Build contextInfo + system prompt
+    API->>Gemini: streamText(model, system, messages, tools)
 
-    loop Stream chunks
-        Gemini-->>API: Text chunk 1
-        API-->>DefaultChatTransport: SSE chunk 1
-        DefaultChatTransport-->>useChat: Append to message
-        useChat-->>useAIChat: messages updated
-        useAIChat-->>User: UI re-renders (streaming text)
-        Gemini-->>API: Text chunk 2
-        API-->>DefaultChatTransport: SSE chunk 2
+    loop Up to 8 steps
+        alt Gemini returns tool call
+            Gemini-->>API: tool call (e.g., get_schedule, create_schedule_items)
+            API->>Tools: execute tool server-side
+            Tools-->>API: structured result
+            API->>Gemini: tool result fed back
+        else Gemini returns text
+            Gemini-->>API: text chunks (streamed)
+            API-->>ChatView: SSE chunks
+            ChatView-->>User: UI updates in real time
+        end
     end
 
-    Gemini-->>API: Stream complete
-    API->>API: toUIMessageStreamResponse
-    API-->>DefaultChatTransport: Stream end
+    Gemini-->>API: stream complete
+    API->>API: onFinish (log tokens, timing)
 
-    useChat->>useAIChat: messages final
-    useAIChat->>localStorage: useEffect persists last 50 messages
+    ChatView->>ChatView: sync tool outputs to local schedule state
+    useAIChat->>useAIChat: persist last 50 messages to localStorage
 ```
 
-**Key points:**
+**Available tools:**
 
-- **Request**: `messages`, `userPreferences`, `schedule`, `onboardingCompleted`
-- **Gemini returns**: Raw text chunks (no schema)
-- **Response format**: `ReadableStream` of SSE events (AI SDK `toUIMessageStreamResponse`)
-- **Frontend**: `useChat` aggregates chunks into one assistant message and updates UI in real time
-- **Storage**: `useEffect` in `useAIChat` saves trimmed messages to `fred-chat-messages-{sessionKey}`
+| Tool | Required Fields | Optional Fields | Server-Side Action |
+| ---- | --------------- | --------------- | ------------------ |
+| `get_schedule` | (none) | — | Returns full `scheduleItems` from request body |
+| `create_schedule_items` | `title`, `date` or `day`, `start_time` | `end_time`, `type`, `is_recurring`, `location` | Validates, checks overlaps, returns created items |
+| `remove_schedule_items` | `match_titles` | `day` | Filters schedule by title match, returns removed count |
+| `search_courses` | `query` | `limit` | Semantic search over WSU course embeddings |
+| `complete_onboarding` | (none) | — | Triggers `generateObject` for full schedule generation |
+
+**Client-side sync (ChatView.tsx):**
+- After `create_schedule_items` succeeds, created items are added to local `scheduleItems` state
+- After `remove_schedule_items` succeeds, matching items are filtered from local state
+- Tool call status messages are shown in the chat during AI reasoning loops
+
+**Auto-retry:**
+If Gemini returns an empty response (no text, no tool calls), the client strips trailing unanswered user messages and retries up to 3 times.
 
 ---
 
-## 7.2. Schedule Generation Flow: Structured Object from Gemini
+### 7.2. Schedule Generation Flow: Structured Object
 
-Schedule uses `generateObject` — Gemini returns a **single JSON object** matching a Zod schema.
+Schedule generation uses `generateObject` — Gemini returns a single JSON object matching a Zod schema. This is triggered by the `complete_onboarding` tool call.
 
 ```mermaid
 sequenceDiagram
@@ -192,182 +235,109 @@ sequenceDiagram
     participant Transformer as schedule-transformer.ts
     participant State as useScheduleState
 
-    Note over User,State: Trigger: "Lets get started" phrase OR user clicks Back
-    User->>page: handleBackToMain
+    User->>page: complete_onboarding tool fires
     page->>page: setIsGeneratingSchedule true
     page->>API: POST { messages, existingSchedule }
 
     API->>API: Build conversationContext from messages
     API->>API: Build systemPrompt with existing schedule
-    API->>Gemini: generateObject(schema: AIScheduleResponseSchema, system, prompt)
+    API->>Gemini: generateObject(schema, system, prompt)
 
-    Gemini->>Gemini: Analyze conversation, extract schedule
-    Gemini-->>API: Single JSON object matching schema
+    Gemini-->>API: JSON matching AIScheduleResponseSchema
+    API-->>page: { success: true, schedule: object }
 
-    API->>API: object validated by Zod
-    API-->>page: Response.json({ success: true, schedule: object })
-
-    page->>page: Parse response.json
-    page->>page: data.schedule.update_type?
+    page->>page: Check update_type
 
     alt update_type = "none"
-        page->>page: No schedule changes
+        page->>page: No changes
     else update_type = "partial"
-        page->>Transformer: applyScheduleChanges(existing, changes, weekDates, ...)
+        page->>Transformer: applyScheduleChanges(existing, changes)
         Transformer-->>page: updated ScheduleItems
-        page->>State: updateScheduleItems
     else update_type = "full"
-        page->>Transformer: transformAIScheduleToItems(weekly_schedule, weekDates, ...)
-        Transformer-->>page: new ScheduleItems
-        page->>Transformer: mergeScheduleForWeek(existing, new, weekDates)
+        page->>Transformer: transformAIScheduleToItems + mergeScheduleForWeek
         Transformer-->>page: merged ScheduleItems
-        page->>State: updateScheduleItems
     end
 
-    page->>State: incrementTaskId for each new task
+    page->>State: updateScheduleItems
     page->>page: setOnboardingCompleted true
-    page->>page: setCurrentView main
-    page->>page: setIsGeneratingSchedule false
-```
-
-**Key points:**
-
-- **Request**: `messages`, `existingSchedule`
-- **Gemini returns**: One object matching `AIScheduleResponseSchema`:
-  - `update_type`: `'none' | 'partial' | 'full'`
-  - `weekly_schedule`: array of day schedules (for `full`)
-  - `changes`: array of add/remove/modify ops (for `partial`)
-  - `schedule_summary`: totals
-  - `notes`: array of strings
-- **Response format**: `Response.json({ success: true, schedule: object })`
-- **Frontend**: Branches on `update_type` and uses `schedule-transformer.ts` to update state
-
----
-
-## 7.3 Schedule Response → UI Flowchart
-
-How the structured schedule from Gemini is turned into visible tasks:
-
-```mermaid
-flowchart TB
-    subgraph API [API Response]
-        R["{ success, schedule }"]
-    end
-
-    R --> Check{update_type?}
-
-    Check -->|"none"| None[No changes - exit]
-    Check -->|"partial"| Partial[applyScheduleChanges]
-    Check -->|"full"| Full[transformAIScheduleToItems]
-
-    Partial --> P1[For each change: add/remove/modify]
-    P1 --> P2[convertBlockToItem for new items]
-    P2 --> P3[Expand recurring blocks across weeks]
-    P3 --> Update1[updateScheduleItems]
-
-    Full --> F1[For each day in weekly_schedule]
-    F1 --> F2[For each block: convertBlockToItem]
-    F2 --> F3[Expand recurring to semester end]
-    F3 --> Merge[mergeScheduleForWeek]
-    Merge --> F4[Keep existing tasks outside current week]
-    F4 --> F5[Add new schedule items for current week]
-    F5 --> Update2[updateScheduleItems]
-
-    Update1 --> State[(localStorage schedule_state)]
-    Update2 --> State
-
-    State --> UI[Calendar and task list re-render]
 ```
 
 ---
 
-## 7.4 Gemini Response Data Shapes
-
-**Chat (streamText):**
-
-- No schema. Response is plain text.
-- AI SDK turns it into `UIMessage` with `parts: [{ type: 'text', text: '...' }]`.
-
-**Schedule (generateObject):**
+### 7.3. Course Search Flow: Vector Embeddings
 
 ```mermaid
-flowchart LR
-    subgraph Schema [AIScheduleResponseSchema]
-        UT[update_type]
-        WS[weekly_schedule]
-        CH[changes]
-        SS[schedule_summary]
-        N[notes]
-    end
+sequenceDiagram
+    participant Chat as /api/chat
+    participant Search as course-search.ts
+    participant Embed as embed.ts
+    participant Gemini as gemini-embedding-001
+    participant Data as course-embeddings.json
 
-    subgraph Block [AIScheduleBlock]
-        ST[start_time 24h]
-        ET[end_time 24h]
-        T[type]
-        TI[title]
-        L[location]
-        IR[is_recurring]
-    end
+    Chat->>Search: findRelevantCourses(query, limit=5, threshold=0.62)
+    Search->>Embed: embedText(query)
+    Embed->>Gemini: embed(query, 768 dims)
+    Gemini-->>Embed: query vector
+    Embed-->>Search: query vector
 
-    subgraph UI [ScheduleItem - App Format]
-        ID[id]
-        TI2[title]
-        TM[time 12h AM/PM]
-        DD[dueDate YYYY-MM-DD]
-        P[priority]
-        C[completed]
-    end
-
-    WS --> Block
-    CH --> Block
-    Block --> Transformer[schedule-transformer]
-    Transformer --> UI
+    Search->>Data: load precomputed course vectors
+    Search->>Search: cosine similarity for each course
+    Search->>Search: filter score > 0.62, take top 5
+    Search-->>Chat: matched courses with scores
 ```
 
 ---
 
 ## 8. State Persistence (localStorage)
 
+| Key | Hook / Module | Contents |
+| --- | ------------- | -------- |
+| `coug_scheduler_survey_state` | `useSurveyState` | showSurvey, currentQuestionIndex, surveyAnswers, userPreferences |
+| `coug_scheduler_schedule_state` | `useScheduleState` | scheduleItems (date-keyed), nextTaskId |
+| `coug_scheduler_chat_state` | `useChatState` | onboardingCompleted |
+| `coug_scheduler_navigation_state` | `useNavigationState` | currentDate, selectedDay, currentView |
+| `fred-chat-messages` | `useAIChat` | Unified chat messages (last 50, single conversation) |
+| `coug_scheduler_calendar_urls` | `page.tsx` | Array of ICS feed URLs |
+| `coug_scheduler_delete_task_dont_ask` | `TaskEditorView` | Boolean preference for delete confirmation dialog |
 
-| Key                               | Hook                 | Contents                                                         |
-| --------------------------------- | -------------------- | ---------------------------------------------------------------- |
-| `coug_scheduler_survey_state`     | `useSurveyState`     | showSurvey, currentQuestionIndex, surveyAnswers, userPreferences |
-| `coug_scheduler_schedule_state`   | `useScheduleState`   | scheduleItems, nextTaskId                                        |
-| `coug_scheduler_chat_state`       | `useChatState`       | messages (legacy), onboardingCompleted                           |
-| `coug_scheduler_navigation_state` | `useNavigationState` | currentDate, selectedDay, currentView                            |
-| `fred-chat-messages-{sessionKey}` | `useAIChat`          | Chat messages per session (separate from chat_state)             |
-
+The "Reset All Data" button calls `clearAllStorage()`, which removes all keys above including chat history and the "don't ask again" preference.
 
 ---
 
 ## 9. Key Concepts
 
-- **Fred vs Butch**: Fred is the in-app AI; Butch is WSU mascot (images use butch-cougar.png)
-- **Onboarding vs Post-Onboarding**: Different system prompts; post-onboarding is more casual check-in style
-- **Session Key**: Each chat open creates a new session; messages are stored per `sessionKey`
-- **Recurring vs One-Time**: AI blocks with `is_recurring: true` are expanded across all weeks until semester end
+- **Fred vs Butch**: Fred is the in-app AI persona; Butch is the WSU mascot (images use `butch-cougar.png`)
+- **Onboarding vs Post-Onboarding**: Different system prompts; onboarding is a detailed conversation to build a schedule, post-onboarding is a casual check-in with schedule management tools
+- **Date-Keyed Storage**: Schedule items are keyed by `YYYY-MM-DD` strings, not day-of-week. Day names are calculated on the fly when needed
+- **Recurring Tasks**: Items with `is_recurring: true` are expanded across all weeks until semester end during schedule generation
+- **Unified Chat**: A single persistent conversation stored under `fred-chat-messages`, shared across all sessions and weeks
+- **Tool Calling Loop**: The AI can chain up to 8 tool-call steps per user message (e.g., get schedule → check conflicts → create items → respond)
+- **Message Sanitization**: The server collapses consecutive same-role messages before sending to Gemini to maintain strict alternating-turn format
 
 ---
 
 ## 10. Unused / Legacy Code
 
-- **webhook-service.ts**: n8n webhook integration; not imported anywhere. App uses `/api/chat` instead.
-- **README**: Describes n8n + webhook deployment; current deployment uses Next.js API routes directly.
+- **`lib/webhook-service.ts`**: n8n webhook integration; not imported anywhere. The app uses `/api/chat` with direct Gemini API calls instead.
+- **`components/` directory**: Legacy UI components duplicated from `ui/components/`. The `ui/` directory is the active one.
 
 ---
 
 ## 11. Environment Variables
 
-- `NEXT_GEMINI_API_KEY`: Required for chat and schedule generation
-- `NEXT_PUBLIC_N8N_WEBHOOK_URL`: Optional; only used if webhook-service were integrated
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `NEXT_GEMINI_API_KEY` | Yes | Google Gemini API key for chat, schedule generation, and embeddings |
 
 ---
 
 ## 12. Where to Start Reading
 
-1. [app/page.tsx](app/page.tsx) – Entry point and view orchestration
-2. [lib/persistence-hooks.ts](lib/persistence-hooks.ts) – State management pattern
-3. [app/api/chat/route.ts](app/api/chat/route.ts) – Chat system prompt and streaming
-4. [app/api/generate-schedule/route.ts](app/api/generate-schedule/route.ts) – Schedule extraction
-5. [lib/schedule-transformer.ts](lib/schedule-transformer.ts) – AI output → UI schedule
-
+1. [`app/page.tsx`](../app/page.tsx) — Entry point and view orchestration
+2. [`lib/constants.ts`](../lib/constants.ts) — All configurable constants (model, semester, survey)
+3. [`app/api/chat/route.ts`](../app/api/chat/route.ts) — Chat system prompt, tool definitions, streaming
+4. [`lib/schedule-tools.ts`](../lib/schedule-tools.ts) — Tool input schemas and server-side execution
+5. [`lib/persistence-hooks.ts`](../lib/persistence-hooks.ts) — State management pattern
+6. [`app/api/generate-schedule/route.ts`](../app/api/generate-schedule/route.ts) — Structured schedule extraction
+7. [`lib/ai-chat-hook.ts`](../lib/ai-chat-hook.ts) — Client-side chat hook with persistence
+8. [`ui/views/ChatView.tsx`](../ui/views/ChatView.tsx) — Chat UI, tool sync, auto-retry logic

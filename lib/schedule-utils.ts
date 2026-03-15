@@ -1,6 +1,5 @@
-import { DAYS } from './constants'
 import { validateMessage } from './schemas'
-import { formatTime24To12 } from './utils'
+import { formatTime24To12, formatDateLocal } from './utils'
 import type {
   TaskForm,
   ScheduleItem,
@@ -18,18 +17,10 @@ export const DEFAULT_MESSAGES: Message[] = [
   },
 ]
 
-export const DEFAULT_SCHEDULE_ITEMS: ScheduleItems = {
-  Mon: [],
-  Tue: [],
-  Wed: [],
-  Thu: [],
-  Fri: [],
-  Sat: [],
-  Sun: [],
-}
+export const DEFAULT_SCHEDULE_ITEMS: ScheduleItems = {}
 
 /** Map getDay() (0=Sun, 1=Mon, ...) to our day keys */
-const GET_DAY_KEY: Record<number, (typeof DAYS)[number]> = {
+const GET_DAY_KEY: Record<number, string> = {
   0: 'Sun',
   1: 'Mon',
   2: 'Tue',
@@ -37,13 +28,6 @@ const GET_DAY_KEY: Record<number, (typeof DAYS)[number]> = {
   4: 'Thu',
   5: 'Fri',
   6: 'Sat',
-}
-
-/** Parse YYYY-MM-DD as local date and return day key (avoids UTC parse bugs) */
-function dateStringToDayKey(dateStr: string): (typeof DAYS)[number] {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const localDate = new Date(y, (m ?? 1) - 1, d ?? 1)
-  return GET_DAY_KEY[localDate.getDay()] ?? 'Mon'
 }
 
 export function createNewTask(
@@ -69,60 +53,48 @@ export function createNewTask(
 }
 
 /**
- * Expand a recurring task into multiple ScheduleItems.
- * Returns items grouped by day key for merging into schedule.
+ * Expand a recurring task into multiple ScheduleItems keyed by date string.
  */
 export function expandRecurringTasks(
   taskForm: TaskForm,
   nextTaskId: number,
   semesterEndDate: string
-): { itemsByDay: ScheduleItems; nextId: number } {
+): { itemsByDate: ScheduleItems; nextId: number } {
   const baseItem = createNewTask(taskForm, nextTaskId)
   const startDateStr = taskForm.dueDate
   const repeatType = taskForm.repeatType ?? 'never'
   const repeatDays = taskForm.repeatDays ?? []
 
-  const itemsByDay: ScheduleItems = {
-    Mon: [],
-    Tue: [],
-    Wed: [],
-    Thu: [],
-    Fri: [],
-    Sat: [],
-    Sun: [],
-  }
+  const itemsByDate: ScheduleItems = {}
 
   if (!startDateStr || repeatType === 'never') {
     let dueDateStr: string
-    let dayKey: (typeof DAYS)[number]
     if (startDateStr) {
       dueDateStr = startDateStr
-      dayKey = dateStringToDayKey(startDateStr)
     } else {
       const now = new Date()
-      dueDateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
-      dayKey = GET_DAY_KEY[now.getDay()] ?? 'Mon'
+      dueDateStr = formatDateLocal(now)
     }
     const item: ScheduleItem = {
       ...baseItem,
       dueDate: dueDateStr,
     }
-    itemsByDay[dayKey].push(item)
-    return { itemsByDay, nextId: nextTaskId + 1 }
+    if (!itemsByDate[dueDateStr]) itemsByDate[dueDateStr] = []
+    itemsByDate[dueDateStr].push(item)
+    return { itemsByDate, nextId: nextTaskId + 1 }
   }
 
   const [sy, sm, sd] = startDateStr.split('-').map(Number)
   const startDate = new Date(sy, sm - 1, sd)
   const [ey, em, ed] = semesterEndDate.split('-').map(Number)
   const endDate = new Date(ey, em - 1, ed)
-  if (startDate > endDate) return { itemsByDay, nextId: nextTaskId }
+  if (startDate > endDate) return { itemsByDate, nextId: nextTaskId }
 
   const repeatGroupId = nextTaskId
   let currentId = nextTaskId
 
   const addItemForDate = (date: Date) => {
-    const dueDateStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`
-    const dayKey = GET_DAY_KEY[date.getDay()] ?? 'Mon'
+    const dueDateStr = formatDateLocal(date)
     const item: ScheduleItem & { repeatType?: string; repeatDays?: number[]; repeatGroupId?: number } = {
       ...baseItem,
       id: currentId,
@@ -131,7 +103,8 @@ export function expandRecurringTasks(
       repeatDays: repeatDays.length > 0 ? repeatDays : undefined,
       repeatGroupId,
     }
-    itemsByDay[dayKey].push(item)
+    if (!itemsByDate[dueDateStr]) itemsByDate[dueDateStr] = []
+    itemsByDate[dueDateStr].push(item)
     currentId++
   }
 
@@ -161,17 +134,17 @@ export function expandRecurringTasks(
     }
   }
 
-  return { itemsByDay, nextId: currentId }
+  return { itemsByDate, nextId: currentId }
 }
 
 export function updateTaskCompletion(
   scheduleItems: ScheduleItems,
   taskId: number,
-  dayKey: string
+  dateKey: string
 ): ScheduleItems {
   return {
     ...scheduleItems,
-    [dayKey]: (scheduleItems[dayKey] || []).map((task) =>
+    [dateKey]: (scheduleItems[dateKey] || []).map((task) =>
       task.id === taskId ? { ...task, completed: !task.completed } : task
     ),
   }
@@ -209,10 +182,9 @@ export function createChatMessage(
 
 export function detectOverlaps(schedule: ScheduleItems): { hasOverlap: boolean; conflicts: string[] } {
   const conflicts: string[] = []
-  const days: Array<keyof ScheduleItems> = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-  for (const day of days) {
-    const dayItems = schedule[day] || []
+  for (const [dateKey, dayItems] of Object.entries(schedule)) {
+    const dayName = GET_DAY_KEY[new Date(dateKey + 'T00:00:00').getDay()] ?? dateKey
 
     for (let i = 0; i < dayItems.length; i++) {
       for (let j = i + 1; j < dayItems.length; j++) {
@@ -251,7 +223,7 @@ export function detectOverlaps(schedule: ScheduleItems): { hasOverlap: boolean; 
 
         if (hasOverlap) {
           conflicts.push(
-            `${String(day)}: "${item1.title}" (${item1.time}) overlaps with "${item2.title}" (${item2.time})`
+            `${dayName}: "${item1.title}" (${item1.time}) overlaps with "${item2.title}" (${item2.time})`
           )
         }
       }

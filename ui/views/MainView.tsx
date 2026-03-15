@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
-  Plus,
   Grid3X3,
   List,
   RotateCcw,
@@ -81,16 +80,21 @@ export default function MainView({
   const currentSelectedDate = weekDates[selectedDay]
   const currentDateString = formatDateLocal(currentSelectedDate)
 
-  const currentScheduleItems = (scheduleItems[DAYS[selectedDay]] || []).filter(
-    (item) => {
-      // If task has no due date, show it (legacy behavior)
-      if (!item.dueDate) {
-        return true
+  const currentScheduleItems = (scheduleItems[currentDateString] || [])
+    .slice()
+    .sort((a, b) => {
+      const parseStart = (t?: string) => {
+        if (!t) return Infinity
+        const match = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+        if (!match) return Infinity
+        let h = parseInt(match[1], 10)
+        const m = parseInt(match[2], 10)
+        if (match[3].toUpperCase() === 'PM' && h !== 12) h += 12
+        if (match[3].toUpperCase() === 'AM' && h === 12) h = 0
+        return h * 60 + m
       }
-      // Only show tasks whose due date matches the currently selected date
-      return item.dueDate === currentDateString
-    }
-  )
+      return parseStart(a.time) - parseStart(b.time)
+    })
 
   function navigateWeek(direction: 'prev' | 'next') {
     const currentDateObj = new Date(currentDate)
@@ -117,16 +121,14 @@ export default function MainView({
     return null
   }
 
-  function handleTaskCompletion(taskId: number, dayKey: string) {
+  function handleTaskCompletion(taskId: number, dateKey: string) {
     updateScheduleItems((items) => ({
       ...items,
-      [dayKey]:
-        items[dayKey]?.map((task) =>
+      [dateKey]:
+        items[dateKey]?.map((task) =>
           task.id === taskId ? { ...task, completed: !task.completed } : task
         ) || [],
     }))
-
-    // Task completion toggled
   }
 
   function handleReset() {
@@ -153,13 +155,13 @@ export default function MainView({
   function handleRemoveCalendarUrl(url: string) {
     removeCalendarUrl(url)
     updateScheduleItems((items) => {
-      const result = { ...items }
-      DAYS.forEach((day) => {
-        result[day] = (result[day] || []).filter(
+      const result: ScheduleItems = {}
+      for (const [key, dayItems] of Object.entries(items)) {
+        result[key] = dayItems.filter(
           (item) =>
             (item as ScheduleItem & { icalUrl?: string }).icalUrl !== url
         )
-      })
+      }
       return result
     })
   }
@@ -221,41 +223,43 @@ export default function MainView({
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 max-w-md mx-auto">
-      <div className="bg-gradient-to-r from-muted/40 to-muted/20 rounded-3xl p-6 mb-6 border border-border/50 shadow-lg relative">
-        <h3 className="text-sm font-semibold text-foreground mb-4 text-center">
-          AI Scheduling Assistant
-        </h3>
-        <div className="flex justify-center">
-          <button
-            onClick={onFredClick}
-            className="flex flex-col items-center gap-3 p-4 rounded-2xl hover:bg-background/60 transition-all duration-300 group hover:scale-105 active:scale-95"
-          >
-            <div className="relative">
-              <div className="w-20 h-20 rounded-full bg-red-700 flex items-center justify-center shadow-xl group-hover:shadow-2xl transition-all duration-300 border-2 border-white/20 overflow-hidden">
-                <Image
-                  src="/images/butch-cougar.png"
-                  alt="Butch the Cougar"
-                  width={64}
-                  height={64}
-                  className="object-contain"
-                />
+    <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
+      {/* Top section: AI assistant, header, calendar — fixed in place */}
+      <div className="flex-shrink-0 p-4 pb-0">
+        <div className="bg-gradient-to-r from-muted/40 to-muted/20 rounded-3xl p-6 mb-6 border border-border/50 shadow-lg relative">
+          <h3 className="text-sm font-semibold text-foreground mb-4 text-center">
+            AI Scheduling Assistant
+          </h3>
+          <div className="flex justify-center">
+            <button
+              onClick={onFredClick}
+              className="flex flex-col items-center gap-3 p-4 rounded-2xl hover:bg-background/60 transition-all duration-300 group hover:scale-105 active:scale-95"
+            >
+              <div className="relative fred-avatar-section">
+                <div className="w-20 h-20 rounded-full bg-red-700 flex items-center justify-center shadow-xl group-hover:shadow-2xl transition-all duration-300 border-2 border-white/20 overflow-hidden">
+                  <Image
+                    src="/images/butch-cougar.png"
+                    alt="Butch the Cougar"
+                    width={64}
+                    height={64}
+                    className="object-contain"
+                  />
+                </div>
+                <div className="absolute -top-1 -right-1 text-xl">🐾</div>
               </div>
-              <div className="absolute -top-1 -right-1 text-xl">🐾</div>
-            </div>
-            <div className="text-center">
-              <div className="text-base font-bold text-foreground group-hover:text-primary transition-colors">
-                {SCHEDULING_AI.name}
+              <div className="text-center">
+                <div className="text-base font-bold text-foreground group-hover:text-primary transition-colors">
+                  {SCHEDULING_AI.name}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {SCHEDULING_AI.description}
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">
-                {SCHEDULING_AI.description}
-              </div>
-            </div>
-          </button>
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Schedule</h1>
           <p className="text-muted-foreground">
@@ -425,15 +429,7 @@ export default function MainView({
             const isToday = date.toDateString() === new Date().toDateString()
             const dateString = formatDateLocal(date)
 
-            // Filter tasks for this specific date, same logic as task display
-            const dayTasks = (scheduleItems[day] || []).filter((item) => {
-              // If task has no due date, show it (legacy behavior)
-              if (!item.dueDate) {
-                return true
-              }
-              // Only count tasks whose due date matches this specific date
-              return item.dueDate === dateString
-            })
+            const dayTasks = scheduleItems[dateString] || []
             const hasActiveTasks = dayTasks.length > 0
 
             return (
@@ -462,8 +458,9 @@ export default function MainView({
           })}
         </div>
       </Card>
+      </div>
 
-      <div className="mb-20">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-foreground">
             {DAYS[selectedDay]}&apos;s Schedule
@@ -506,7 +503,7 @@ export default function MainView({
                       }`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleTaskCompletion(item.id, DAYS[selectedDay])
+                        handleTaskCompletion(item.id, currentDateString)
                       }}
                     />
                     <div className="flex-1">
@@ -556,7 +553,7 @@ export default function MainView({
                   }`}
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleTaskCompletion(item.id, DAYS[selectedDay])
+                    handleTaskCompletion(item.id, currentDateString)
                   }}
                 >
                   {item.completed && (
@@ -598,21 +595,23 @@ export default function MainView({
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/50 p-4 z-10">
-        <div className="max-w-md mx-auto">
-          <Button
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-full py-3 font-semibold shadow-lg"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onAddTask()
-            }}
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Add Task to Schedule
-          </Button>
-        </div>
-      </div>
+      <Button
+        className="absolute bottom-5 right-5 w-[80px] h-[80px] rounded-full bg-primary hover:bg-primary/90 active:bg-green-500 text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 p-0"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onAddTask()
+        }}
+      >
+        <Image
+          src="/images/+_sign_icon.png"
+          alt="Add task"
+          width={80}
+          height={80}
+          className="object-contain"
+          style={{ height: '65%', width: '65%' }}
+        />
+      </Button>
     </div>
   )
 }
