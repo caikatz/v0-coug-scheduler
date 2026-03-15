@@ -9,7 +9,7 @@ export const GEMINI_MODELS = {
 export type GeminiModelKey = keyof typeof GEMINI_MODELS
 
 /** Change this value to switch which Gemini model the app uses globally */
-export const ACTIVE_GEMINI_MODEL: GeminiModelKey = '3-flash'
+export const ACTIVE_GEMINI_MODEL: GeminiModelKey = '3.1-flash-lite'
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
