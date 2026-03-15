@@ -1,27 +1,22 @@
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
-import { useSurveyState, useScheduleState } from './persistence-hooks'
-import { useEffect, useState, useMemo } from 'react'
+import { useSurveyState } from './persistence-hooks'
+import type { ScheduleItems } from './schemas'
+import { useEffect, useMemo } from 'react'
 
 export function useAIChat(
   sessionKey?: string | number,
-  onboardingCompleted: boolean = false
+  onboardingCompleted: boolean = false,
+  nextTaskId: number = 1,
+  scheduleItems: ScheduleItems = {}
 ) {
   const { userPreferences } = useSurveyState()
-  const { scheduleItems } = useScheduleState()
 
-  // Generate a unique session ID that changes with sessionKey
-  const [sessionId, setSessionId] = useState(
-    () => `fred-chat-session-${Date.now()}`
-  )
+  // Stable session ID - single persistent conversation
+  const sessionId = 'fred-chat-session'
 
-  // Update sessionId when sessionKey changes
-  useEffect(() => {
-    setSessionId(`fred-chat-session-${Date.now()}`)
-  }, [sessionKey])
-
-  // Storage key for persistence
-  const storageKey = `fred-chat-messages-${sessionKey ?? 'default'}`
+  // Single storage key for all messages
+  const storageKey = 'fred-chat-messages'
 
   // Load saved messages from localStorage
   const savedMessages = useMemo(() => {
@@ -101,6 +96,7 @@ export function useAIChat(
           userPreferences,
           schedule: scheduleItems,
           onboardingCompleted,
+          nextTaskId,
         },
       }),
     }),
@@ -110,6 +106,7 @@ export function useAIChat(
       userPreferences,
       scheduleItems,
       onboardingCompleted,
+      nextTaskId,
     ]
   )
 
@@ -131,7 +128,8 @@ export function useAIChat(
 
   return {
     messages,
-    isLoading: status === 'streaming',
+    isLoading: status === 'streaming' || status === 'submitted',
+    status,
     error,
     sendMessage,
     stop,

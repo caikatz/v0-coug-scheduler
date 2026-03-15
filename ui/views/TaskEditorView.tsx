@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/ui/components/dialog'
-import { DAYS } from '@/lib/constants'
 import { WSU_SEMESTER } from '@/lib/constants'
 import { convertTo24Hour, getWeekDates, formatDateLocal } from '@/lib/utils'
 import { expandRecurringTasks } from '@/lib/schedule-utils'
@@ -107,8 +106,8 @@ export default function TaskEditorView({
       const idsToRemove = repeatGroupId
         ? (() => {
             const ids: number[] = []
-            DAYS.forEach((day) => {
-              (scheduleItems[day] || []).forEach((item) => {
+            Object.values(scheduleItems).forEach((items) => {
+              items.forEach((item) => {
                 const ir = item as ScheduleItem & { repeatGroupId?: number }
                 if (ir.repeatGroupId === repeatGroupId) ids.push(ir.id)
               })
@@ -118,35 +117,35 @@ export default function TaskEditorView({
         : [editingTask.id]
 
       updateScheduleItems((items) => {
-        let result = { ...items }
-        DAYS.forEach((day) => {
-          result[day] = (result[day] || []).filter(
+        const result: ScheduleItems = {}
+        for (const [key, dayItems] of Object.entries(items)) {
+          result[key] = dayItems.filter(
             (item) => !idsToRemove.includes(item.id)
           )
-        })
-        const { itemsByDay, nextId } = expandRecurringTasks(
+        }
+        const { itemsByDate, nextId } = expandRecurringTasks(
           { ...taskForm, dueDate: taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay]) },
           nextTaskId,
           WSU_SEMESTER.current.end
         )
-        DAYS.forEach((day) => {
-          result[day] = [...(result[day] || []), ...itemsByDay[day]]
-        })
+        for (const [dateKey, dateItems] of Object.entries(itemsByDate)) {
+          result[dateKey] = [...(result[dateKey] || []), ...dateItems]
+        }
         setNextTaskId(nextId)
         return result
       })
     } else {
       const dueDate = taskForm.dueDate || formatDateLocal(getWeekDates(currentDateObj)[selectedDay])
-      const { itemsByDay, nextId } = expandRecurringTasks(
+      const { itemsByDate, nextId } = expandRecurringTasks(
         { ...taskForm, dueDate },
         nextTaskId,
         WSU_SEMESTER.current.end
       )
       updateScheduleItems((items) => {
         const result = { ...items }
-        DAYS.forEach((day) => {
-          result[day] = [...(result[day] || []), ...itemsByDay[day]]
-        })
+        for (const [dateKey, dateItems] of Object.entries(itemsByDate)) {
+          result[dateKey] = [...(result[dateKey] || []), ...dateItems]
+        }
         return result
       })
       setNextTaskId(nextId)
@@ -164,8 +163,8 @@ export default function TaskEditorView({
     const idsToRemove = repeatGroupId
       ? (() => {
           const ids: number[] = []
-          DAYS.forEach((day) => {
-            (scheduleItems[day] || []).forEach((item) => {
+          Object.values(scheduleItems).forEach((items) => {
+            items.forEach((item) => {
               const ir = item as ScheduleItem & { repeatGroupId?: number }
               if (ir.repeatGroupId === repeatGroupId) ids.push(ir.id)
             })
@@ -175,12 +174,12 @@ export default function TaskEditorView({
       : [editingTask.id]
 
     updateScheduleItems((items) => {
-      const result = { ...items }
-      DAYS.forEach((day) => {
-        result[day] = (result[day] || []).filter(
+      const result: ScheduleItems = {}
+      for (const [key, dayItems] of Object.entries(items)) {
+        result[key] = dayItems.filter(
           (item) => !idsToRemove.includes(item.id)
         )
-      })
+      }
       return result
     })
 

@@ -47,8 +47,8 @@ export default function ScheduleApp() {
     setCurrentView,
   } = useNavigationState()
 
-  // Track chat session - changes each time chat opens to start fresh
-  const [chatSessionKey, setChatSessionKey] = useState<number>(0)
+  // Stable chat session key - single persistent conversation
+  const chatSessionKey = 0
 
   // Task editor state
   const [editingTask, setEditingTask] = useState<ScheduleItem | null>(null)
@@ -70,7 +70,6 @@ export default function ScheduleApp() {
         goBackInSurvey={goBackInSurvey}
         completeSurvey={completeSurvey}
         onComplete={() => {
-          setChatSessionKey((prev) => prev + 1)
           setCurrentView('chat')
         }}
       />
@@ -131,7 +130,6 @@ export default function ScheduleApp() {
         }))
       }}
       onFredClick={() => {
-        setChatSessionKey((prev) => prev + 1)
         setCurrentView('chat')
       }}
       onTaskClick={(task: ScheduleItem) => {

@@ -45,25 +45,26 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 }
 
 /**
- * Find the most relevant courses based on semantic similarity
+ * Find the most relevant courses based on semantic similarity.
+ * @param minScore - minimum cosine similarity to include (default 0.62)
  */
 export async function findRelevantCourses(
   query: string,
-  limit = 5
-): Promise<any[]> {
+  limit = 5,
+  minScore = 0.62
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ courses: any[]; scoredCourses: { course_id: string; shortTitle: string; score: number }[] }> {
   console.log('Vector search query:', query)
 
-  // Embed the search query
   const queryVector = await embedText(query)
 
-  // Calculate similarity scores for all courses
   const coursesWithScores = (courseEmbeddings as CourseEmbedding[]).map((course) => ({
     ...course,
     score: cosineSimilarity(queryVector, course.embedding)
   }))
 
-  // Sort by similarity score (highest first) and take top results
   const topCourses = coursesWithScores
+    .filter((c) => c.score >= minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
 
@@ -71,12 +72,19 @@ export async function findRelevantCourses(
     topCourses.map(c => ({ 
       course_id: c.course_id, 
       title: c.shortTitle, 
-      score: c.score 
+      score: c.score.toFixed(4)
     })), 
     null, 
     2
   ))
 
-  // Remove embedding and score from returned results
-  return topCourses.map(({ embedding, score, ...course }) => course)
+  const scoredCourses = topCourses.map((c) => ({
+    course_id: c.course_id,
+    shortTitle: c.shortTitle,
+    score: Math.round(c.score * 10000) / 10000,
+  }))
+
+  const courses = topCourses.map(({ embedding, score, ...course }) => course)
+
+  return { courses, scoredCourses }
 }

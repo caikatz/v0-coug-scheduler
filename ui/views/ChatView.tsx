@@ -4,15 +4,9 @@ import React, { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { ArrowLeft, Send, AlertCircle, ChevronRight } from 'lucide-react'
 import { Button } from '@/ui/components/button'
-import { DAYS, SCHEDULING_AI, WSU_SEMESTER } from '@/lib/constants'
+import { DAYS, SCHEDULING_AI } from '@/lib/constants'
 import { useAIChat } from '@/lib/ai-chat-hook'
-import { getWeekDates } from '@/lib/utils'
-import { detectOverlaps } from '@/lib/schedule-utils'
-import {
-  transformAIScheduleToItems,
-  mergeScheduleForWeek,
-  applyScheduleChanges,
-} from '@/lib/schedule-transformer'
+import { getWeekDates, formatDateLocal } from '@/lib/utils'
 import type { ScheduleItems } from '@/lib/schemas'
 
 interface ChatViewProps {
@@ -25,6 +19,33 @@ interface ChatViewProps {
   onboardingCompleted: boolean
   setOnboardingCompleted: (value: boolean) => void
   onNavigateToMain: () => void
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface ToolUIPart {
+  type: string
+  toolCallId?: string
+  toolName?: string
+  state?: 'input-streaming' | 'input-available' | 'output-available' | 'error'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input?: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  output?: any
+  errorText?: string
+}
+
+function getToolNameFromPart(part: ToolUIPart): string | null {
+  if (part.toolName) return part.toolName
+  if (part.type?.startsWith('tool-')) return part.type.slice(5)
+  return null
+}
+
+const TOOL_LABELS: Record<string, { pending: string; done: string }> = {
+  get_schedule: { pending: 'Fetching your schedule...', done: 'Schedule loaded' },
+  create_schedule_items: { pending: 'Adding items to calendar...', done: 'Items added to calendar' },
+  remove_schedule_items: { pending: 'Removing items from calendar...', done: 'Items removed from calendar' },
+  search_courses: { pending: 'Searching course catalog...', done: 'Courses found' },
+  complete_onboarding: { pending: 'Generating your schedule...', done: 'Schedule generated' },
 }
 
 export default function ChatView({
@@ -42,17 +63,20 @@ export default function ChatView({
 
   const { messages, isLoading, error, sendMessage } = useAIChat(
     chatSessionKey,
-    onboardingCompleted
+    onboardingCompleted,
+    nextTaskId,
+    scheduleItems
   )
 
   const [inputText, setInputText] = useState('')
-  const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false)
   const [expandedCalendar, setExpandedCalendar] = useState(false)
-  const [isUpdatingCalendar, setIsUpdatingCalendar] = useState(false)
   const [textareaHasOverflow, setTextareaHasOverflow] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const emptyRetryCount = useRef(0)
+  const prevStatus = useRef(status)
+  const MAX_EMPTY_RETRIES = 2
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -61,27 +85,64 @@ export default function ChatView({
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value)
 
-    // Check if textarea has overflowed to multiple lines
-    // ScrollHeight - Total height of every line in the textbox
-    // ClientHeight - Total VISIBLE height of every line in the textbox
-
     if (textareaRef.current) {
       const hasOverflow = textareaRef.current.scrollHeight > textareaRef.current.clientHeight
       setTextareaHasOverflow(hasOverflow)
     }
   }
 
-  // Auto-scroll when messages change or loading state changes
   useEffect(() => {
     scrollToBottom()
   }, [messages, isLoading])
+
+  // Auto-retry on empty Gemini responses
+  useEffect(() => {
+    const wasLoading = prevStatus.current === 'streaming' || prevStatus.current === 'submitted'
+    const isNowReady = status === 'ready'
+    prevStatus.current = status
+
+    if (!wasLoading || !isNowReady || messages.length < 2) return
+
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg?.role !== 'assistant') return
+
+    const hasText = lastMsg.parts?.some(
+      (p: { type: string; text?: string }) => p.type === 'text' && p.text && p.text.trim().length > 0
+    )
+    const hasToolCall = lastMsg.parts?.some(
+      (p: { type: string }) => p.type?.startsWith?.('tool-')
+    )
+
+    if (hasText || hasToolCall) {
+      emptyRetryCount.current = 0
+      return
+    }
+
+    if (emptyRetryCount.current >= MAX_EMPTY_RETRIES) {
+      console.warn(`[EmptyRetry] Max retries (${MAX_EMPTY_RETRIES}) reached. Giving up.`)
+      emptyRetryCount.current = 0
+      return
+    }
+
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUserMsg) return
+
+    const userText = lastUserMsg.parts?.find(
+      (p: { type: string; text?: string }) => p.type === 'text'
+    )?.text
+
+    if (!userText) return
+
+    emptyRetryCount.current++
+    console.warn(`[EmptyRetry] Empty response detected. Auto-retrying (${emptyRetryCount.current}/${MAX_EMPTY_RETRIES})...`)
+    sendMessage({ text: userText })
+  }, [status, messages, sendMessage])
 
   // Show return-to-home button when Fred has called complete_onboarding
   const showReturnToHomeButton = (() => {
     if (
       onboardingCompleted ||
       isLoading ||
-      isGeneratingSchedule ||
       messages.length < 2
     ) {
       return false
@@ -91,193 +152,98 @@ export default function ChatView({
       return false
     }
     return lastMessage.parts.some(
-      (part: { type?: string; state?: string }) =>
-        part.type === 'tool-complete_onboarding' &&
+      (part: ToolUIPart) =>
+        getToolNameFromPart(part) === 'complete_onboarding' &&
         part.state === 'output-available'
     )
   })()
 
-  // Live update chat calendar as Fred suggests schedule items
+  // Sync schedule from tool call results in chat messages
   useEffect(() => {
-    // Only if there are messages and AI just finished responding
-    if (messages.length < 2) {
-      return
-    }
+    if (!messages || messages.length === 0 || isLoading) return
 
-    // Check if the last message is from the assistant (Fred just finished responding)
     const lastMessage = messages[messages.length - 1]
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      return
-    }
+    if (lastMessage?.role !== 'assistant') return
 
-    // Only trigger when AI is done responding (not while loading)
-    if (isLoading) {
-      return
-    }
+    for (const part of lastMessage.parts || []) {
+      const toolPart = part as ToolUIPart
+      const toolName = getToolNameFromPart(toolPart)
 
-    // Debounce the schedule generation to avoid excessive API calls
-    const timeoutId = setTimeout(async () => {
-      try {
-        console.log('🔄 Live calendar update triggered - Fred just responded')
-        setIsUpdatingCalendar(true)
+      if (!toolName) continue
 
-        // Call generate-schedule API to get latest schedule
-        const response = await fetch('/api/generate-schedule', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
-        })
+      console.log('[ToolSync] Part:', { type: toolPart.type, toolName, state: toolPart.state })
+      console.log('[ToolSync] Output:', toolPart.output)
 
-        const data = await response.json()
+      if (toolName === 'create_schedule_items' && toolPart.state === 'output-available') {
+        const output = toolPart.output
+        console.log('[ToolSync] create_schedule_items output:', JSON.stringify(output, null, 2))
 
-        if (data.success && data.schedule) {
-          console.log('✅ Schedule data received, updating calendar')
+        if (output?.success && output?.created) {
+          const created = output.created as { event_id: string; title: string; date: string; time: string }[]
+          console.log('[ToolSync] Created items:', created)
 
-          // Get current week dates
-          const weekDates = getWeekDates(currentDateObj)
-
-          // Transform AI schedule to ScheduleItems format
-          const transformedSchedule = transformAIScheduleToItems(
-            data.schedule,
-            weekDates,
-            nextTaskId
-          )
-
-          // Merge with existing schedule (deduplicates automatically)
-          const mergedSchedule = mergeScheduleForWeek(
-            scheduleItems,
-            transformedSchedule,
-            weekDates
-          )
-
-          // Check for overlaps before updating
-          const { hasOverlap, conflicts } = detectOverlaps(mergedSchedule)
-
-          if (hasOverlap) {
-            console.warn('⚠️ CRITICAL OVERLAP DETECTED! Calendar will NOT be updated:')
-            conflicts.forEach(conflict => console.warn('  - ' + conflict))
-            // Do not update the schedule - reject the changes
-            return
+          if (created.length > 0) {
+            updateScheduleItems((current) => {
+              const updated = { ...current }
+              for (const item of created) {
+                const dateKey = item.date
+                console.log('[ToolSync] Adding item to dateKey:', dateKey, item.title)
+                const dateItems = updated[dateKey] || []
+                const alreadyExists = dateItems.some(
+                  (existing) => existing.title === item.title && existing.time === item.time
+                )
+                if (!alreadyExists) {
+                  const newId = Math.max(0, ...Object.values(updated).flat().map((i) => i.id)) + 1
+                  if (!updated[dateKey]) updated[dateKey] = []
+                  updated[dateKey] = [
+                    ...updated[dateKey],
+                    {
+                      id: newId,
+                      title: item.title,
+                      time: item.time,
+                      dueDate: dateKey,
+                      priority: 'medium' as const,
+                      completed: false,
+                    },
+                  ]
+                } else {
+                  console.log('[ToolSync] Item already exists, skipping:', item.title)
+                }
+              }
+              console.log('[ToolSync] Updated schedule keys:', Object.keys(updated))
+              return updated
+            })
+            for (let i = 0; i < created.length; i++) {
+              incrementTaskId()
+            }
           }
-
-          // Update the schedule state (triggers calendar re-render)
-          updateScheduleItems(() => mergedSchedule)
-          console.log('📅 Chat calendar updated with new schedule items')
-        } else {
-          console.log('⚠️ No schedule data in response')
         }
-      } catch (error) {
-        // Silently fail for live updates
-        console.debug('Failed to update chat calendar:', error)
-      } finally {
-        setIsUpdatingCalendar(false)
       }
-    }, 300) // Fast debounce - only 300ms delay after Fred responds
 
-    return () => clearTimeout(timeoutId)
-  }, [messages, isLoading])
+      if (toolName === 'remove_schedule_items' && toolPart.state === 'output-available') {
+        console.log('[ToolSync] remove_schedule_items output:', toolPart.output)
+      }
 
-  async function handleBackToMain() {
-    // Only generate schedule if there's a meaningful conversation (more than just the opening message)
-    if (messages.length > 1) {
-      console.time('frontend-schedule-generation')
-      console.log(
-        '🎯 Frontend: Starting schedule generation with',
-        messages.length,
-        'messages'
-      )
-
-      setIsGeneratingSchedule(true)
-      try {
-        console.time('fetch-api-call')
-        console.log('📡 Frontend: Making API call to /api/generate-schedule')
-
-        // Call the generate-schedule endpoint
-        const response = await fetch('/api/generate-schedule', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages,
-            existingSchedule: scheduleItems,
-          }),
-        })
-
-        console.timeEnd('fetch-api-call')
-        console.log('📡 Frontend: API call completed, status:', response.status)
-
-        console.time('response-parsing')
-        const data = await response.json()
-        console.timeEnd('response-parsing')
-
-        console.log('📦 Frontend: Response data success:', data.success)
-
-        if (data.success && data.schedule) {
-          console.time('schedule-processing')
-
-          // Get current week dates
-          const weekDates = getWeekDates(currentDateObj)
-
-          if (data.schedule.update_type === 'none') {
-            // No update - just exit
-            console.log('✅ No schedule changes detected')
-          } else if (data.schedule.update_type === 'partial') {
-            const updated = applyScheduleChanges(
-              scheduleItems,
-              data.schedule.changes || [],
-              weekDates,
-              nextTaskId,
-              WSU_SEMESTER.current.end
-            )
-
-            // Count new tasks added
-            const oldTaskCount = Object.values(scheduleItems).flat().length
-            const newTaskCount = Object.values(updated).flat().length
-            const addedTasks = newTaskCount - oldTaskCount
-
-            updateScheduleItems(() => updated)
-
-            // Increment task ID for new items
-            for (let i = 0; i < addedTasks; i++) {
-              incrementTaskId()
-            }
-          } else if (data.schedule.update_type === 'full') {
-            const transformedSchedule = transformAIScheduleToItems(
-              {
-                update_type: data.schedule.update_type,
-                weekly_schedule: data.schedule.weekly_schedule || [],
-                schedule_summary: data.schedule.schedule_summary,
-                notes: data.schedule.notes,
-              },
-              weekDates,
-              nextTaskId
-            )
-
-            // Full overhaul: replace previous schedule entirely
-            updateScheduleItems(() => transformedSchedule)
-
-            const totalNewTasks = Object.values(transformedSchedule).flat().length
-            for (let i = 0; i < totalNewTasks; i++) {
-              incrementTaskId()
-            }
+      if (toolName === 'complete_onboarding' && toolPart.state === 'output-available') {
+        const output = toolPart.output
+        console.log('[ToolSync] complete_onboarding output:', output)
+        if (output?.success) {
+          if (output.schedule) {
+            const serverSchedule = output.schedule as ScheduleItems
+            updateScheduleItems(() => serverSchedule)
           }
-
-          console.timeEnd('schedule-processing')
-          console.log('✅ Frontend: Schedule processing completed')
-
           if (!onboardingCompleted) {
             setOnboardingCompleted(true)
           }
         }
-      } catch (error) {
-        // Fail silently as requested
-        console.error('❌ Frontend: Failed to generate schedule:', error)
-      } finally {
-        setIsGeneratingSchedule(false)
-        console.timeEnd('frontend-schedule-generation')
-        console.log('🏁 Frontend: Schedule generation process finished')
       }
     }
+  }, [messages, isLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function handleBackToMain() {
+    if (!onboardingCompleted && messages.length > 1) {
+      setOnboardingCompleted(true)
+    }
     onNavigateToMain()
   }
 
@@ -287,7 +253,6 @@ export default function ChatView({
     const currentMessage = inputText.trim()
     setInputText('')
 
-    // Send message using AI SDK integration
     sendMessage({ text: currentMessage })
   }
 
@@ -298,25 +263,32 @@ export default function ChatView({
     }
   }
 
+  function renderToolStatus(part: ToolUIPart, index: number) {
+    const toolName = getToolNameFromPart(part)
+    const label = TOOL_LABELS[toolName || '']
+    if (!label) return null
+
+    const isDone = part.state === 'output-available'
+    const output = part.output as { conflicts?: string[] } | undefined
+    return (
+      <div key={index} className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+        {isDone ? (
+          <span className="text-green-600 dark:text-green-400">&#10003;</span>
+        ) : (
+          <span className="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        )}
+        <span>{isDone ? label.done : label.pending}</span>
+        {output?.conflicts && output.conflicts.length > 0 && (
+          <span className="text-amber-600 dark:text-amber-400 ml-1">
+            ({output.conflicts.length} conflict{output.conflicts.length > 1 ? 's' : ''})
+          </span>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
-      {/* Loading Overlay */}
-      {isGeneratingSchedule && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-card rounded-2xl p-8 shadow-2xl border border-border flex flex-col items-center gap-4">
-            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <div className="text-center">
-              <h3 className="font-semibold text-lg text-foreground mb-1">
-                Generating Your Schedule
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Analyzing your conversation with Fred...
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-muted/40 to-muted/20 border-b border-border/50 flex-shrink-0">
         <Button
           variant="ghost"
@@ -352,9 +324,6 @@ export default function ChatView({
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">This Week&apos;s Schedule</h3>
-            {isUpdatingCalendar && (
-              <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            )}
           </div>
           <Button
             variant="ghost"
@@ -368,9 +337,11 @@ export default function ChatView({
         <div className="px-3 pb-3 overflow-y-auto flex-1" style={expandedCalendar ? {} : { maxHeight: 'calc(30vh - 2.5rem)' }}>
           <div className="grid grid-cols-7 gap-1 text-xs">
             {DAYS.map((day, index) => {
-              const daySchedule = scheduleItems[day] || []
+              const weekDates = getWeekDates(currentDateObj)
+              const dateKey = formatDateLocal(weekDates[index])
+              const daySchedule = scheduleItems[dateKey] || []
               const todayDate = new Date()
-              const currentDayOfWeek = (todayDate.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
+              const currentDayOfWeek = (todayDate.getDay() + 6) % 7
               const isToday = index === currentDayOfWeek
 
               return (
@@ -382,7 +353,6 @@ export default function ChatView({
                     {daySchedule.length === 0 ? (
                       <div className="text-muted-foreground/50 text-center py-2">-</div>
                     ) : expandedCalendar ? (
-                      // Show all items when expanded
                       daySchedule.map((item) => (
                         <div
                           key={item.id}
@@ -400,7 +370,6 @@ export default function ChatView({
                         </div>
                       ))
                     ) : (
-                      // Show first 4 items when collapsed
                       daySchedule.slice(0, 4).map((item) => (
                         <div
                           key={item.id}
@@ -466,6 +435,11 @@ export default function ChatView({
                       if (part.type === 'text') {
                         return <span key={index}>{part.text}</span>
                       }
+                      const toolPart = part as ToolUIPart
+                      const toolName = getToolNameFromPart(toolPart)
+                      if (toolName && TOOL_LABELS[toolName]) {
+                        return renderToolStatus(toolPart, index)
+                      }
                       return null
                     })}
                 </div>
@@ -487,7 +461,7 @@ export default function ChatView({
               onClick={handleBackToMain}
               className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
-              ← View your schedule
+              &larr; View your schedule
             </Button>
           </div>
         )}

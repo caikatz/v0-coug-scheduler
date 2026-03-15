@@ -81,16 +81,7 @@ export default function MainView({
   const currentSelectedDate = weekDates[selectedDay]
   const currentDateString = formatDateLocal(currentSelectedDate)
 
-  const currentScheduleItems = (scheduleItems[DAYS[selectedDay]] || []).filter(
-    (item) => {
-      // If task has no due date, show it (legacy behavior)
-      if (!item.dueDate) {
-        return true
-      }
-      // Only show tasks whose due date matches the currently selected date
-      return item.dueDate === currentDateString
-    }
-  )
+  const currentScheduleItems = scheduleItems[currentDateString] || []
 
   function navigateWeek(direction: 'prev' | 'next') {
     const currentDateObj = new Date(currentDate)
@@ -117,16 +108,14 @@ export default function MainView({
     return null
   }
 
-  function handleTaskCompletion(taskId: number, dayKey: string) {
+  function handleTaskCompletion(taskId: number, dateKey: string) {
     updateScheduleItems((items) => ({
       ...items,
-      [dayKey]:
-        items[dayKey]?.map((task) =>
+      [dateKey]:
+        items[dateKey]?.map((task) =>
           task.id === taskId ? { ...task, completed: !task.completed } : task
         ) || [],
     }))
-
-    // Task completion toggled
   }
 
   function handleReset() {
@@ -153,13 +142,13 @@ export default function MainView({
   function handleRemoveCalendarUrl(url: string) {
     removeCalendarUrl(url)
     updateScheduleItems((items) => {
-      const result = { ...items }
-      DAYS.forEach((day) => {
-        result[day] = (result[day] || []).filter(
+      const result: ScheduleItems = {}
+      for (const [key, dayItems] of Object.entries(items)) {
+        result[key] = dayItems.filter(
           (item) =>
             (item as ScheduleItem & { icalUrl?: string }).icalUrl !== url
         )
-      })
+      }
       return result
     })
   }
@@ -425,15 +414,7 @@ export default function MainView({
             const isToday = date.toDateString() === new Date().toDateString()
             const dateString = formatDateLocal(date)
 
-            // Filter tasks for this specific date, same logic as task display
-            const dayTasks = (scheduleItems[day] || []).filter((item) => {
-              // If task has no due date, show it (legacy behavior)
-              if (!item.dueDate) {
-                return true
-              }
-              // Only count tasks whose due date matches this specific date
-              return item.dueDate === dateString
-            })
+            const dayTasks = scheduleItems[dateString] || []
             const hasActiveTasks = dayTasks.length > 0
 
             return (
@@ -506,7 +487,7 @@ export default function MainView({
                       }`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleTaskCompletion(item.id, DAYS[selectedDay])
+                        handleTaskCompletion(item.id, currentDateString)
                       }}
                     />
                     <div className="flex-1">
@@ -556,7 +537,7 @@ export default function MainView({
                   }`}
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleTaskCompletion(item.id, DAYS[selectedDay])
+                    handleTaskCompletion(item.id, currentDateString)
                   }}
                 >
                   {item.completed && (

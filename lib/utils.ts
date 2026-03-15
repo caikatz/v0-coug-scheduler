@@ -54,6 +54,14 @@ export function getCurrentDayIndex(): number {
   return (today.getDay() + 6) % 7
 }
 
+const SHORT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+export function dateToDayName(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return SHORT_DAY_NAMES[date.getDay()]
+}
+
 // Helper to convert slider value to hour string
 export function sliderToHourString(value: number, questionId: number): string {
   if (questionId === 1) {
