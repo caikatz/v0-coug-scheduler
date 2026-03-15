@@ -19,7 +19,7 @@ import {
   executeCreateScheduleItems,
   executeRemoveScheduleItems,
 } from '@/lib/schedule-tools'
-import { GEMINI_MODELS, ACTIVE_GEMINI_MODEL } from '@/lib/constants'
+import { GEMINI_MODELS, ACTIVE_GEMINI_MODEL, DEBUG } from '@/lib/constants'
 
 const modelId = GEMINI_MODELS[ACTIVE_GEMINI_MODEL]
 
@@ -481,14 +481,18 @@ export async function POST(req: Request) {
     (p): p is { type: 'text'; text: string } => (p as { type: string }).type === 'text'
   )?.text
 
-  console.log('\n=== [Chat API] Incoming Request ===')
-  console.log('[Chat API] Time:', new Date().toISOString())
-  console.log('[Chat API] Message count:', messages.length)
-  console.log('[Chat API] Last user message:', lastUserText?.slice(0, 200) ?? '(none)')
-  console.log('[Chat API] Onboarding completed:', onboardingCompleted)
-  console.log('[Chat API] Has preferences:', !!userPreferences)
-  console.log('[Chat API] Schedule keys:', schedule ? Object.keys(schedule).length : 0)
-  console.log('[Chat API] Next task ID:', nextTaskId)
+  if (DEBUG) {
+    console.log('\n=== [Chat API] Incoming Request ===')
+    console.log('[Chat API] Time:', new Date().toISOString())
+    console.log('[Chat API] Message count:', messages.length)
+    console.log('[Chat API] Last user message:', lastUserText?.slice(0, 200) ?? '(none)')
+    console.log('[Chat API] Onboarding completed:', onboardingCompleted)
+    console.log('[Chat API] Has preferences:', !!userPreferences)
+    console.log('[Chat API] Schedule keys:', schedule ? Object.keys(schedule).length : 0)
+    console.log('[Chat API] Next task ID:', nextTaskId)
+  } else {
+    console.log(`[Chat API] Request — msgs: ${messages.length}, user: "${lastUserText?.slice(0, 80) ?? '(none)'}"`)
+  }
 
   const currentSchedule: ScheduleItems = schedule ?? {}
   let currentNextId = nextTaskId ?? 1
@@ -500,7 +504,7 @@ export async function POST(req: Request) {
   const coreMessages = rawCoreMessages.reduce<typeof rawCoreMessages>((acc, msg) => {
     const last = acc[acc.length - 1]
     if (last && last.role === msg.role) {
-      console.warn(`[Chat API] Collapsing consecutive ${msg.role} messages (index ${acc.length})`)
+      if (DEBUG) console.warn(`[Chat API] Collapsing consecutive ${msg.role} messages (index ${acc.length})`)
       acc[acc.length - 1] = msg
     } else {
       acc.push(msg)
@@ -508,7 +512,7 @@ export async function POST(req: Request) {
     return acc
   }, [])
 
-  if (coreMessages.length !== rawCoreMessages.length) {
+  if (coreMessages.length !== rawCoreMessages.length && DEBUG) {
     console.warn(`[Chat API] Sanitized messages: ${rawCoreMessages.length} → ${coreMessages.length} (removed ${rawCoreMessages.length - coreMessages.length} duplicates)`)
   }
 
@@ -635,16 +639,18 @@ export async function POST(req: Request) {
   - If search_courses returns no results, tell the student you could not find that course in the catalog
   `
 
-  console.log('[Chat API] System prompt length:', systemPrompt.length, 'chars')
-  console.log('[Chat API] Core messages count:', coreMessages.length)
-  console.log('[Chat API] Core message roles:', coreMessages.map((m, i) => `${i}:${m.role}`).join(', '))
-  for (const [i, msg] of coreMessages.entries()) {
-    const content = Array.isArray(msg.content)
-      ? msg.content.map((c: { type?: string; text?: string }) => c.type === 'text' ? c.text?.slice(0, 80) : `[${c.type}]`).join(' ')
-      : String(msg.content).slice(0, 80)
-    console.log(`[Chat API] Message ${i} (${msg.role}): ${content}${String(content).length >= 80 ? '...' : ''}`)
+  if (DEBUG) {
+    console.log('[Chat API] System prompt length:', systemPrompt.length, 'chars')
+    console.log('[Chat API] Core messages count:', coreMessages.length)
+    console.log('[Chat API] Core message roles:', coreMessages.map((m, i) => `${i}:${m.role}`).join(', '))
+    for (const [i, msg] of coreMessages.entries()) {
+      const content = Array.isArray(msg.content)
+        ? msg.content.map((c: { type?: string; text?: string }) => c.type === 'text' ? c.text?.slice(0, 80) : `[${c.type}]`).join(' ')
+        : String(msg.content).slice(0, 80)
+      console.log(`[Chat API] Message ${i} (${msg.role}): ${content}${String(content).length >= 80 ? '...' : ''}`)
+    }
+    console.log('[Chat API] Prompt type:', onboardingCompleted ? 'post-onboarding' : 'onboarding')
   }
-  console.log('[Chat API] Prompt type:', onboardingCompleted ? 'post-onboarding' : 'onboarding')
 
   const now = new Date()
 
@@ -654,10 +660,12 @@ export async function POST(req: Request) {
         'Get the current schedule to check for conflicts before adding items. Call this before create_schedule_items.',
       inputSchema: GetScheduleInputSchema,
       execute: async (input: z.infer<typeof GetScheduleInputSchema>) => {
-        console.log('\n--- [Tool Call] get_schedule ---')
-        console.log('[Tool] Input:', JSON.stringify(input))
         const result = executeGetSchedule(currentSchedule, currentNextId, input, now)
-        console.log('[Tool] Result: %d date keys returned', Object.keys(result.schedule).length)
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] get_schedule ---')
+          console.log('[Tool] Input:', JSON.stringify(input))
+          console.log('[Tool] Result: %d date keys returned', Object.keys(result.schedule).length)
+        }
         return result
       },
     }),
@@ -667,8 +675,6 @@ export async function POST(req: Request) {
         'Add one or more items to the calendar. Requires title, date or day, and start_time. Use date (YYYY-MM-DD) for specific dates; use day for recurring/weekly items. Optional: end_time, type, is_recurring, location.',
       inputSchema: CreateScheduleItemsInputSchema,
       execute: async (input: z.infer<typeof CreateScheduleItemsInputSchema>) => {
-        console.log('\n--- [Tool Call] create_schedule_items ---')
-        console.log('[Tool] Input:', JSON.stringify(input, null, 2))
         const { result, updatedSchedule, newNextTaskId } =
           executeCreateScheduleItems(
             currentSchedule,
@@ -678,9 +684,13 @@ export async function POST(req: Request) {
           )
         Object.assign(currentSchedule, updatedSchedule)
         currentNextId = newNextTaskId
-        console.log('[Tool] Created:', result.created.length, 'items')
-        console.log('[Tool] Conflicts:', result.conflicts.length > 0 ? result.conflicts : 'none')
-        console.log('[Tool] Created items:', JSON.stringify(result.created))
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] create_schedule_items ---')
+          console.log('[Tool] Input:', JSON.stringify(input, null, 2))
+          console.log('[Tool] Created:', result.created.length, 'items')
+          console.log('[Tool] Conflicts:', result.conflicts.length > 0 ? result.conflicts : 'none')
+          console.log('[Tool] Created items:', JSON.stringify(result.created))
+        }
         return result
       },
     }),
@@ -690,15 +700,17 @@ export async function POST(req: Request) {
         'Remove schedule items by title match. Specify match_titles and optionally a day.',
       inputSchema: RemoveScheduleItemsInputSchema,
       execute: async (input: z.infer<typeof RemoveScheduleItemsInputSchema>) => {
-        console.log('\n--- [Tool Call] remove_schedule_items ---')
-        console.log('[Tool] Input:', JSON.stringify(input))
         const { result, updatedSchedule } = executeRemoveScheduleItems(
           currentSchedule,
           input,
           now
         )
         Object.assign(currentSchedule, updatedSchedule)
-        console.log('[Tool] Removed:', result.removed_count, 'items')
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] remove_schedule_items ---')
+          console.log('[Tool] Input:', JSON.stringify(input))
+          console.log('[Tool] Removed:', result.removed_count, 'items')
+        }
         return result
       },
     }),
@@ -710,14 +722,16 @@ export async function POST(req: Request) {
         query: z.string().min(1).describe('Search query - course name, subject, number, or topic. e.g. "CPTS 321", "organic chemistry", "software engineering"'),
       }),
       execute: async (input: { query: string }) => {
-        console.log('\n--- [Tool Call] search_courses ---')
-        console.log('[Tool] Query:', input.query)
         const searchStart = Date.now()
         const { courses, scoredCourses } = await findRelevantCourses(input.query, 5, 0.62)
-        console.log('[Tool] Search took:', Date.now() - searchStart, 'ms')
-        console.log('[Tool] Results:', scoredCourses.length, 'courses above threshold')
-        if (scoredCourses.length > 0) {
-          console.log('[Tool] Top matches:', JSON.stringify(scoredCourses))
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] search_courses ---')
+          console.log('[Tool] Query:', input.query)
+          console.log('[Tool] Search took:', Date.now() - searchStart, 'ms')
+          console.log('[Tool] Results:', scoredCourses.length, 'courses above threshold')
+          if (scoredCourses.length > 0) {
+            console.log('[Tool] Top matches:', JSON.stringify(scoredCourses))
+          }
         }
         return {
           success: true,
@@ -738,10 +752,12 @@ export async function POST(req: Request) {
             'Call this when the student has agreed to their schedule and you are ready to generate it. Only call after you have provided a summary and the student expressed satisfaction.',
           inputSchema: z.object({}),
           execute: async () => {
-            console.log('\n--- [Tool Call] complete_onboarding ---')
-            console.log('[Tool] Schedule date keys:', Object.keys(currentSchedule).length)
-            console.log('[Tool] Total items:', Object.values(currentSchedule).flat().length)
-            console.log('[Tool] Next task ID:', currentNextId)
+            if (DEBUG) {
+              console.log('\n--- [Tool Call] complete_onboarding ---')
+              console.log('[Tool] Schedule date keys:', Object.keys(currentSchedule).length)
+              console.log('[Tool] Total items:', Object.values(currentSchedule).flat().length)
+              console.log('[Tool] Next task ID:', currentNextId)
+            }
             return {
               success: true,
               schedule: currentSchedule,
@@ -754,11 +770,13 @@ export async function POST(req: Request) {
   let stepIndex = 0
   const stepTimings: number[] = []
 
-  console.log('\n=== [Chat API] Starting Gemini Stream ===')
-  console.log(`[Chat API] Model: ${modelId}`)
-  console.log('[Chat API] Tools available:', Object.keys(tools).join(', '))
-  console.log('[Chat API] Max steps: 8')
-  console.log('[Chat API] Input messages to Gemini:', coreMessages.length)
+  if (DEBUG) {
+    console.log('\n=== [Chat API] Starting Gemini Stream ===')
+    console.log(`[Chat API] Model: ${modelId}`)
+    console.log('[Chat API] Tools available:', Object.keys(tools).join(', '))
+    console.log('[Chat API] Max steps: 8')
+    console.log('[Chat API] Input messages to Gemini:', coreMessages.length)
+  }
 
   const result = streamText({
     model: withTracing(google(modelId), phClient, {
@@ -786,65 +804,72 @@ export async function POST(req: Request) {
       const stepType = ('stepType' in stepResult ? stepResult.stepType : null)
         ?? (toolCalls?.length ? 'tool-calls' : 'text')
 
-      console.log(`\n>>> [Gemini] Step ${stepIndex} completed (${stepTime}ms) <<<`)
-      console.log(`[Gemini] Step type: ${stepType}`)
-      console.log(`[Gemini] Finish reason: ${finishReason}`)
+      if (DEBUG) {
+        console.log(`\n>>> [Gemini] Step ${stepIndex} completed (${stepTime}ms) <<<`)
+        console.log(`[Gemini] Step type: ${stepType}`)
+        console.log(`[Gemini] Finish reason: ${finishReason}`)
 
-      if (usage) {
-        console.log(`[Gemini] Tokens — input: ${usage.inputTokens ?? 0}, output: ${usage.outputTokens ?? 0}, total: ${usage.totalTokens ?? 0}`)
-        if ('reasoningTokens' in usage && usage.reasoningTokens) {
-          console.log(`[Gemini] Reasoning tokens: ${usage.reasoningTokens}`)
+        if (usage) {
+          console.log(`[Gemini] Tokens — input: ${usage.inputTokens ?? 0}, output: ${usage.outputTokens ?? 0}, total: ${usage.totalTokens ?? 0}`)
+          if ('reasoningTokens' in usage && usage.reasoningTokens) {
+            console.log(`[Gemini] Reasoning tokens: ${usage.reasoningTokens}`)
+          }
+          if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
+            console.log(`[Gemini] Cached input tokens: ${usage.cachedInputTokens}`)
+          }
         }
-        if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
-          console.log(`[Gemini] Cached input tokens: ${usage.cachedInputTokens}`)
-        }
-      }
 
-      if (toolCalls && toolCalls.length > 0) {
-        console.log(`[Gemini] Tool calls in this step:`)
-        for (const tc of toolCalls) {
-          const name = tc.toolName ?? (tc as Record<string, unknown>).name ?? 'unknown'
-          const args = tc.args ?? (tc as Record<string, unknown>).input ?? (tc as Record<string, unknown>).arguments
-          console.log(`  -> ${name}(${JSON.stringify(args)})`)
+        if (toolCalls && toolCalls.length > 0) {
+          console.log(`[Gemini] Tool calls in this step:`)
+          for (const tc of toolCalls) {
+            const name = tc.toolName ?? (tc as Record<string, unknown>).name ?? 'unknown'
+            const args = tc.args ?? (tc as Record<string, unknown>).input ?? (tc as Record<string, unknown>).arguments
+            console.log(`  -> ${name}(${JSON.stringify(args)})`)
+          }
         }
-      }
 
-      if (toolResults && toolResults.length > 0) {
-        console.log(`[Gemini] Tool results returned to Gemini:`)
-        for (const tr of toolResults) {
-          const name = tr.toolName ?? (tr as Record<string, unknown>).name ?? 'unknown'
-          const raw = tr.result ?? (tr as Record<string, unknown>).output
-          const resultStr = JSON.stringify(raw) ?? '(no data)'
-          console.log(`  <- ${name}: ${resultStr.length > 300 ? resultStr.slice(0, 300) + '...' : resultStr}`)
+        if (toolResults && toolResults.length > 0) {
+          console.log(`[Gemini] Tool results returned to Gemini:`)
+          for (const tr of toolResults) {
+            const name = tr.toolName ?? (tr as Record<string, unknown>).name ?? 'unknown'
+            const raw = tr.result ?? (tr as Record<string, unknown>).output
+            const resultStr = JSON.stringify(raw) ?? '(no data)'
+            console.log(`  <- ${name}: ${resultStr.length > 300 ? resultStr.slice(0, 300) + '...' : resultStr}`)
+          }
         }
-      }
 
-      if (text && text.length > 0) {
-        console.log(`[Gemini] Text output: ${text.length} chars — "${text.slice(0, 150)}${text.length > 150 ? '...' : ''}"`)
+        if (text && text.length > 0) {
+          console.log(`[Gemini] Text output: ${text.length} chars — "${text.slice(0, 150)}${text.length > 150 ? '...' : ''}"`)
+        }
       }
 
       if ((!text || text.length === 0) && (!toolCalls || toolCalls.length === 0)) {
-        console.warn(`[Gemini] WARNING: Empty response — no text and no tool calls. This is a Gemini API fluke.`)
+        console.warn(`[Gemini] WARNING: Empty response — no text and no tool calls.`)
       }
     },
     onFinish: async ({ text, steps, usage }) => {
       const elapsed = Date.now() - requestStart
-      console.log('\n=== [Chat API] Stream Finished ===')
-      console.log('[Chat API] Total time:', elapsed, 'ms')
-      console.log('[Chat API] Total steps:', steps?.length ?? 0)
-      console.log('[Chat API] Step durations:', stepTimings.map((t, i) => `step${i + 1}=${t}ms`).join(', '))
-      console.log('[Chat API] Final response length:', text?.length ?? 0, 'chars')
-      if (usage) {
-        console.log('[Chat API] Cumulative tokens — input: %d, output: %d, total: %d',
-          usage.inputTokens ?? 0, usage.outputTokens ?? 0, usage.totalTokens ?? 0)
-        if ('reasoningTokens' in usage && usage.reasoningTokens) {
-          console.log('[Chat API] Cumulative reasoning tokens:', usage.reasoningTokens)
+      if (DEBUG) {
+        console.log('\n=== [Chat API] Stream Finished ===')
+        console.log('[Chat API] Total time:', elapsed, 'ms')
+        console.log('[Chat API] Total steps:', steps?.length ?? 0)
+        console.log('[Chat API] Step durations:', stepTimings.map((t, i) => `step${i + 1}=${t}ms`).join(', '))
+        console.log('[Chat API] Final response length:', text?.length ?? 0, 'chars')
+        if (usage) {
+          console.log('[Chat API] Cumulative tokens — input: %d, output: %d, total: %d',
+            usage.inputTokens ?? 0, usage.outputTokens ?? 0, usage.totalTokens ?? 0)
+          if ('reasoningTokens' in usage && usage.reasoningTokens) {
+            console.log('[Chat API] Cumulative reasoning tokens:', usage.reasoningTokens)
+          }
+          if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
+            console.log('[Chat API] Cumulative cached input tokens:', usage.cachedInputTokens)
+          }
         }
-        if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
-          console.log('[Chat API] Cumulative cached input tokens:', usage.cachedInputTokens)
-        }
+        console.log('=== [Chat API] End ===\n')
+      } else {
+        const tokens = usage ? `${usage.inputTokens ?? 0}in/${usage.outputTokens ?? 0}out` : 'n/a'
+        console.log(`[Chat API] Done — ${elapsed}ms, ${steps?.length ?? 0} steps, ${tokens}, ${text?.length ?? 0} chars`)
       }
-      console.log('=== [Chat API] End ===\n')
       await phClient.flush()
     },
   })

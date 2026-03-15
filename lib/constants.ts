@@ -1,5 +1,8 @@
 /* App-wide constants and types */
 
+/** Set to true to enable verbose server-side AI/tool logging */
+export const DEBUG = false
+
 export const GEMINI_MODELS = {
   '2.5-flash': 'gemini-2.5-flash',
   '3-flash': 'gemini-3-flash-preview',

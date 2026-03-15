@@ -1,5 +1,5 @@
-// lib/courseSearch.ts
 import { embedText } from './embed'
+import { DEBUG } from '@/lib/constants'
 import courseEmbeddings from './data/course-embeddings.json'
 
 interface CourseEmbedding {
@@ -54,7 +54,7 @@ export async function findRelevantCourses(
   minScore = 0.62
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<{ courses: any[]; scoredCourses: { course_id: string; shortTitle: string; score: number }[] }> {
-  console.log('Vector search query:', query)
+  if (DEBUG) console.log('Vector search query:', query)
 
   const queryVector = await embedText(query)
 
@@ -68,15 +68,17 @@ export async function findRelevantCourses(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
 
-  console.log('Search Results:', JSON.stringify(
-    topCourses.map(c => ({ 
-      course_id: c.course_id, 
-      title: c.shortTitle, 
-      score: c.score.toFixed(4)
-    })), 
-    null, 
-    2
-  ))
+  if (DEBUG) {
+    console.log('Search Results:', JSON.stringify(
+      topCourses.map(c => ({ 
+        course_id: c.course_id, 
+        title: c.shortTitle, 
+        score: c.score.toFixed(4)
+      })), 
+      null, 
+      2
+    ))
+  }
 
   const scoredCourses = topCourses.map((c) => ({
     course_id: c.course_id,
