@@ -501,7 +501,7 @@ export async function POST(req: Request) {
 
   // Sanitize: collapse consecutive same-role messages (caused by empty-response retries)
   // Gemini requires strictly alternating user/assistant turns.
-  const coreMessages = rawCoreMessages.reduce<typeof rawCoreMessages>((acc, msg) => {
+  const deduped = rawCoreMessages.reduce<typeof rawCoreMessages>((acc, msg) => {
     const last = acc[acc.length - 1]
     if (last && last.role === msg.role) {
       if (DEBUG) console.warn(`[Chat API] Collapsing consecutive ${msg.role} messages (index ${acc.length})`)
@@ -512,9 +512,25 @@ export async function POST(req: Request) {
     return acc
   }, [])
 
-  if (coreMessages.length !== rawCoreMessages.length && DEBUG) {
-    console.warn(`[Chat API] Sanitized messages: ${rawCoreMessages.length} → ${coreMessages.length} (removed ${rawCoreMessages.length - coreMessages.length} duplicates)`)
+  if (deduped.length !== rawCoreMessages.length && DEBUG) {
+    console.warn(`[Chat API] Sanitized messages: ${rawCoreMessages.length} → ${deduped.length} (removed ${rawCoreMessages.length - deduped.length} duplicates)`)
   }
+
+  // Strip verbose tool results from older messages to reduce token usage.
+  // Keep full results only in the last 6 messages (~3 user/assistant exchanges).
+  const RECENT_WINDOW = 6
+  const coreMessages = deduped.map((msg, idx) => {
+    if (idx >= deduped.length - RECENT_WINDOW) return msg
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+
+    const trimmedContent = msg.content.map((part: Record<string, unknown>) => {
+      if (part.type === 'tool-result') {
+        return { ...part, result: '[trimmed — older message]' }
+      }
+      return part
+    })
+    return { ...msg, content: trimmedContent }
+  })
 
   // Build context string for system prompt
   let contextInfo = ''
@@ -537,19 +553,8 @@ export async function POST(req: Request) {
   }
 
   if (schedule && Object.keys(schedule).length > 0) {
-    contextInfo += `\nCurrent Schedule:`
-    Object.entries(schedule).forEach(([day, tasks]) => {
-      if (tasks && tasks.length > 0) {
-        contextInfo += `\n${day}: ${tasks
-          .map(
-            (task) =>
-              `${task.title} ${task.time ? `(${task.time})` : ''} ${
-                task.completed ? '✓' : '○'
-              }`
-          )
-          .join(', ')}`
-      }
-    })
+    const totalItems = Object.values(schedule).flat().length
+    contextInfo += `\nThe student has ${totalItems} items across ${Object.keys(schedule).length} days on their calendar. Use the get_schedule tool to see the full schedule when needed.`
   }
 
   const basePrompt = onboardingCompleted

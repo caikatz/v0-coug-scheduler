@@ -113,12 +113,11 @@ export function useAIChat(
   // Hook that manages AI chat
   const { messages, sendMessage, setMessages, status, error, stop } = useChat(chatOptions)
 
-  // Persist messages on every change, trimming to last 50
+  // Persist messages on every change, trimming to last 20
   useEffect(() => {
     if (!messages || messages.length === 0) return
     try {
-      // Keep only the last 50 messages
-      const trimmed = messages.slice(-50)
+      const trimmed = messages.slice(-20)
       localStorage.setItem(storageKey, JSON.stringify(trimmed))
     } catch (err) {
       console.error('Failed to store chat messages', err)
