@@ -19,8 +19,10 @@ import {
   executeCreateScheduleItems,
   executeRemoveScheduleItems,
 } from '@/lib/schedule-tools'
+import { GEMINI_MODELS, ACTIVE_GEMINI_MODEL } from '@/lib/constants'
 
-// Allow streaming responses up to 30 seconds
+const modelId = GEMINI_MODELS[ACTIVE_GEMINI_MODEL]
+
 export const maxDuration = 60
 
 const geminiKey = process.env.NEXT_GEMINI_API_KEY ?? ''
@@ -491,7 +493,24 @@ export async function POST(req: Request) {
   const currentSchedule: ScheduleItems = schedule ?? {}
   let currentNextId = nextTaskId ?? 1
 
-  const coreMessages = await convertToModelMessages(messages)
+  const rawCoreMessages = await convertToModelMessages(messages)
+
+  // Sanitize: collapse consecutive same-role messages (caused by empty-response retries)
+  // Gemini requires strictly alternating user/assistant turns.
+  const coreMessages = rawCoreMessages.reduce<typeof rawCoreMessages>((acc, msg) => {
+    const last = acc[acc.length - 1]
+    if (last && last.role === msg.role) {
+      console.warn(`[Chat API] Collapsing consecutive ${msg.role} messages (index ${acc.length})`)
+      acc[acc.length - 1] = msg
+    } else {
+      acc.push(msg)
+    }
+    return acc
+  }, [])
+
+  if (coreMessages.length !== rawCoreMessages.length) {
+    console.warn(`[Chat API] Sanitized messages: ${rawCoreMessages.length} → ${coreMessages.length} (removed ${rawCoreMessages.length - coreMessages.length} duplicates)`)
+  }
 
   // Build context string for system prompt
   let contextInfo = ''
@@ -540,8 +559,10 @@ export async function POST(req: Request) {
     `Today\'s date is ${new Date().toISOString().split('T')[0]}.`,
     '',
     '### get_schedule',
-    'Retrieves the current schedule. Call this BEFORE creating items so you can avoid time conflicts.',
-    '- Optional: specify a **date** (YYYY-MM-DD) or **day** (e.g. "Monday") to filter.',
+    'Retrieves the current schedule. Call this ONCE before creating or removing items to check for conflicts.',
+    '- Call with NO arguments to get the full schedule (preferred — avoids multiple calls).',
+    '- Optional: specify a **date** (YYYY-MM-DD) or **day** (e.g. "Monday") to filter to a single day.',
+    '- **Do NOT call get_schedule multiple times for different days.** One unfiltered call is sufficient.',
     '',
     '### create_schedule_items',
     'Adds one or more items to the student\'s calendar.',
@@ -577,17 +598,29 @@ export async function POST(req: Request) {
     'Call this ONLY when the student has agreed to their schedule and you are ready to generate it.',
     '',
     '## TOOL USAGE RULES',
-    '1. ALWAYS call get_schedule first before creating or removing items. You need to see what is on the calendar before modifying it.',
-    '2. NEVER guess required fields - ask the student if anything is missing.',
-    '3. Return structured responses so the UI can update the calendar.',
-    '4. When creating schedule items, add ALL discussed items in a single create_schedule_items call when possible.',
-    '5. After creating items, confirm what was added with the student.',
-    '6. When the user mentions a specific date like "March 20th" or "tomorrow", use the **date** field with YYYY-MM-DD format.',
-    '7. When the user mentions a recurring day like "every Monday", use the **day** field with is_recurring: true.',
-    '8. When the student mentions a course or class, call **search_courses** to look up official details. Do NOT invent course names, credits, or requirements.',
-    '9. **CRITICAL**: When the student asks you to add, schedule, or create an item, you MUST call create_schedule_items. Do NOT just say you will add it — actually call the tool. Saying "I\'ll add that" without calling create_schedule_items is a failure.',
-    '10. **CRITICAL**: When the student asks you to remove or delete an item, you MUST call remove_schedule_items. Do NOT just say you removed it — actually call the tool.',
-    '11. A complete add-to-schedule flow is: search_courses (if class) → get_schedule → create_schedule_items → confirm to student. ALL steps must happen in a single request. Do NOT stop after search_courses.',
+    '1. ALWAYS call get_schedule ONCE (with no arguments) before creating or removing items to check for conflicts. Never call it multiple times per request.',
+    '2. NEVER guess required fields — ask the student if anything is missing.',
+    '3. When creating schedule items, add ALL discussed items in a single create_schedule_items call when possible.',
+    '4. When the user mentions a specific date like "March 20th" or "tomorrow", use the **date** field with YYYY-MM-DD format.',
+    '5. When the user mentions a recurring day like "every Monday", use the **day** field with is_recurring: true.',
+    '6. When the student mentions a course or class, call **search_courses** to look up official details. Do NOT invent course names, credits, or requirements.',
+    '',
+    '## ABSOLUTE RULES — VIOLATING THESE IS A CRITICAL FAILURE',
+    '',
+    '**RULE A — NEVER LIE ABOUT ACTIONS**:',
+    'NEVER say "I\'ve added", "I\'ve removed", "it\'s on your schedule", or any similar claim UNLESS you actually called create_schedule_items or remove_schedule_items in this response AND the tool returned success.',
+    'If you only called search_courses or get_schedule, you have NOT added anything. Do NOT tell the student you did.',
+    '',
+    '**RULE B — ALWAYS COMPLETE THE FULL TOOL CHAIN**:',
+    'When a student asks to add/schedule/create something and you have all the required info (title, day/date, time), you MUST execute the COMPLETE chain in one response:',
+    '  search_courses (if it\'s a class) → get_schedule → create_schedule_items → then confirm.',
+    'Do NOT stop after search_courses or get_schedule. Do NOT say "I\'ll add that for you" and then just produce text. CALL THE TOOL.',
+    '',
+    '**RULE C — REMOVALS REQUIRE THE TOOL**:',
+    'When a student asks to remove/delete something, you MUST call remove_schedule_items. Do NOT just say it was removed.',
+    '',
+    '**RULE D — TEXT-ONLY RESPONSES MEAN NO CHANGES WERE MADE**:',
+    'If your response contains only text and no tool calls to create_schedule_items or remove_schedule_items, then NOTHING was added or removed. Your text must reflect this reality.',
   ].join('\n')
 
   const systemPrompt = `
@@ -604,6 +637,13 @@ export async function POST(req: Request) {
 
   console.log('[Chat API] System prompt length:', systemPrompt.length, 'chars')
   console.log('[Chat API] Core messages count:', coreMessages.length)
+  console.log('[Chat API] Core message roles:', coreMessages.map((m, i) => `${i}:${m.role}`).join(', '))
+  for (const [i, msg] of coreMessages.entries()) {
+    const content = Array.isArray(msg.content)
+      ? msg.content.map((c: { type?: string; text?: string }) => c.type === 'text' ? c.text?.slice(0, 80) : `[${c.type}]`).join(' ')
+      : String(msg.content).slice(0, 80)
+    console.log(`[Chat API] Message ${i} (${msg.role}): ${content}${String(content).length >= 80 ? '...' : ''}`)
+  }
   console.log('[Chat API] Prompt type:', onboardingCompleted ? 'post-onboarding' : 'onboarding')
 
   const now = new Date()
@@ -715,13 +755,13 @@ export async function POST(req: Request) {
   const stepTimings: number[] = []
 
   console.log('\n=== [Chat API] Starting Gemini Stream ===')
-  console.log('[Chat API] Model: gemini-2.5-flash')
+  console.log(`[Chat API] Model: ${modelId}`)
   console.log('[Chat API] Tools available:', Object.keys(tools).join(', '))
   console.log('[Chat API] Max steps: 8')
   console.log('[Chat API] Input messages to Gemini:', coreMessages.length)
 
   const result = streamText({
-    model: withTracing(google('gemini-2.5-flash'), phClient, {
+    model: withTracing(google(modelId), phClient, {
       posthogProperties: {
         conversationType: onboardingCompleted
           ? 'post-onboarding'

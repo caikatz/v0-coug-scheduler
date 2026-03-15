@@ -1,5 +1,16 @@
 /* App-wide constants and types */
 
+export const GEMINI_MODELS = {
+  '2.5-flash': 'gemini-2.5-flash',
+  '3-flash': 'gemini-3-flash-preview',
+  '3.1-flash-lite': 'gemini-3.1-flash-lite-preview',
+} as const
+
+export type GeminiModelKey = keyof typeof GEMINI_MODELS
+
+/** Change this value to switch which Gemini model the app uses globally */
+export const ACTIVE_GEMINI_MODEL: GeminiModelKey = '3-flash'
+
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
 export const MONTHS = [

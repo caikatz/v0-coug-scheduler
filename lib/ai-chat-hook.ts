@@ -111,7 +111,7 @@ export function useAIChat(
   )
 
   // Hook that manages AI chat
-  const { messages, sendMessage, status, error, stop } = useChat(chatOptions)
+  const { messages, sendMessage, setMessages, status, error, stop } = useChat(chatOptions)
 
   // Persist messages on every change, trimming to last 50
   useEffect(() => {
@@ -125,13 +125,13 @@ export function useAIChat(
     }
   }, [messages, storageKey])
 
-
   return {
     messages,
     isLoading: status === 'streaming' || status === 'submitted',
     status,
     error,
     sendMessage,
+    setMessages,
     stop,
     sessionId,
   }

@@ -61,7 +61,7 @@ export default function ChatView({
 }: ChatViewProps) {
   const currentDateObj = currentDate instanceof Date ? currentDate : new Date(currentDate)
 
-  const { messages, isLoading, error, sendMessage } = useAIChat(
+  const { messages, isLoading, status, error, sendMessage, setMessages } = useAIChat(
     chatSessionKey,
     onboardingCompleted,
     nextTaskId,
@@ -97,23 +97,36 @@ export default function ChatView({
 
   // Auto-retry on empty Gemini responses
   useEffect(() => {
-    const wasLoading = prevStatus.current === 'streaming' || prevStatus.current === 'submitted'
-    const isNowReady = status === 'ready'
+    const prev = prevStatus.current
     prevStatus.current = status
 
-    if (!wasLoading || !isNowReady || messages.length < 2) return
+    const wasLoading = prev === 'streaming' || prev === 'submitted'
+    const isNowReady = status === 'ready'
+
+    console.log(`[EmptyRetry] Status: ${prev} → ${status}, msgs: ${messages.length}`)
+
+    if (!wasLoading || !isNowReady || messages.length < 1) return
 
     const lastMsg = messages[messages.length - 1]
-    if (lastMsg?.role !== 'assistant') return
+    console.log(`[EmptyRetry] Last msg role: ${lastMsg?.role}, parts:`, lastMsg?.parts?.map((p: { type: string; text?: string }) => ({ type: p.type, hasText: !!(p.text?.trim()) })))
 
-    const hasText = lastMsg.parts?.some(
-      (p: { type: string; text?: string }) => p.type === 'text' && p.text && p.text.trim().length > 0
-    )
-    const hasToolCall = lastMsg.parts?.some(
-      (p: { type: string }) => p.type?.startsWith?.('tool-')
-    )
+    // Check if the last assistant message has meaningful content
+    let responseIsEmpty = false
 
-    if (hasText || hasToolCall) {
+    if (lastMsg?.role === 'assistant') {
+      const hasText = lastMsg.parts?.some(
+        (p: { type: string; text?: string }) => p.type === 'text' && p.text && p.text.trim().length > 0
+      )
+      const hasToolCall = lastMsg.parts?.some(
+        (p: { type: string }) => p.type?.startsWith?.('tool-')
+      )
+      responseIsEmpty = !hasText && !hasToolCall
+    } else if (lastMsg?.role === 'user') {
+      // Gemini returned nothing — no assistant message was even added
+      responseIsEmpty = true
+    }
+
+    if (!responseIsEmpty) {
       emptyRetryCount.current = 0
       return
     }
@@ -135,8 +148,20 @@ export default function ChatView({
 
     emptyRetryCount.current++
     console.warn(`[EmptyRetry] Empty response detected. Auto-retrying (${emptyRetryCount.current}/${MAX_EMPTY_RETRIES})...`)
-    sendMessage({ text: userText })
-  }, [status, messages, sendMessage])
+
+    // Strip trailing user messages that got no response to avoid
+    // consecutive user turns (which Gemini can't handle).
+    const cleaned = [...messages]
+    while (cleaned.length > 0 && cleaned[cleaned.length - 1].role === 'user') {
+      cleaned.pop()
+    }
+    console.log(`[EmptyRetry] Cleaned messages: ${messages.length} → ${cleaned.length} (stripped ${messages.length - cleaned.length} trailing user msgs)`)
+    setMessages(cleaned)
+
+    setTimeout(() => {
+      sendMessage({ text: userText })
+    }, 500)
+  }, [status, messages, sendMessage, setMessages])
 
   // Show return-to-home button when Fred has called complete_onboarding
   const showReturnToHomeButton = (() => {
@@ -221,7 +246,31 @@ export default function ChatView({
       }
 
       if (toolName === 'remove_schedule_items' && toolPart.state === 'output-available') {
-        console.log('[ToolSync] remove_schedule_items output:', toolPart.output)
+        const output = toolPart.output as { success?: boolean; removed_count?: number; match_titles?: string[] } | undefined
+        console.log('[ToolSync] remove_schedule_items output:', JSON.stringify(output, null, 2))
+
+        if (output?.success && output.removed_count && output.removed_count > 0 && output.match_titles) {
+          const matchTitles = output.match_titles
+          updateScheduleItems((current) => {
+            const updated: ScheduleItems = {}
+            for (const [dateKey, items] of Object.entries(current)) {
+              const filtered = items.filter((item) => {
+                const shouldRemove = matchTitles.some((title: string) =>
+                  item.title.toLowerCase().includes(title.toLowerCase())
+                )
+                if (shouldRemove) {
+                  console.log('[ToolSync] Removing from client:', dateKey, item.title)
+                }
+                return !shouldRemove
+              })
+              if (filtered.length > 0) {
+                updated[dateKey] = filtered
+              }
+            }
+            console.log('[ToolSync] Client schedule after removal:', Object.keys(updated).length, 'date keys')
+            return updated
+          })
+        }
       }
 
       if (toolName === 'complete_onboarding' && toolPart.state === 'output-available') {

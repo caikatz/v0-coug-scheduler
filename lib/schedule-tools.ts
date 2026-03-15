@@ -113,6 +113,7 @@ export interface CreateScheduleItemsResult {
 export interface RemoveScheduleItemsResult {
   success: boolean
   removed_count: number
+  match_titles: string[]
 }
 
 // --- Helpers ---
@@ -450,7 +451,7 @@ export function executeRemoveScheduleItems(
   }
 
   return {
-    result: { success: true, removed_count: removedCount },
+    result: { success: true, removed_count: removedCount, match_titles: input.match_titles },
     updatedSchedule,
   }
 }
