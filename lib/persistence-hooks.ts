@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { z } from 'zod'
 import { saveToStorage, loadFromStorage, STORAGE_KEYS } from './storage-utils'
 
@@ -11,8 +11,6 @@ import {
   ScheduleStateSchema,
   ChatStateSchema,
   NavigationStateSchema,
-  DEFAULT_MESSAGES,
-  DEFAULT_SCHEDULE_ITEMS,
   type SurveyState,
   type ScheduleState,
   type ChatState,
@@ -21,6 +19,7 @@ import {
   type Message,
   type ScheduleItems,
 } from './schemas'
+import { DEFAULT_MESSAGES, DEFAULT_SCHEDULE_ITEMS } from './schedule-utils'
 
 // Default states moved outside hooks to prevent re-creation on each render
 const DEFAULT_SURVEY_STATE: SurveyState = {
@@ -43,18 +42,29 @@ const DEFAULT_CHAT_STATE: ChatState = {
   onboardingCompleted: false,
 }
 
+// Stable default for navigation (avoids hydration mismatch from new Date())
+const DEFAULT_NAVIGATION_STATE: NavigationState = {
+  version: '1.0.0',
+  currentDate: new Date(2000, 0, 1),
+  selectedDay: 0,
+  currentView: 'main',
+}
+
 /**
- * Generic hook for localStorage-backed state with Zod validation
+ * Generic hook for localStorage-backed state with Zod validation.
+ * Uses defaultValue on first render (server + client) to avoid hydration mismatch,
+ * then syncs from localStorage in useEffect after mount.
  */
 function useLocalStorageState<T>(
   key: string,
   defaultValue: T,
   schema?: z.ZodSchema<T>
 ): [T, (value: T | ((prev: T) => T)) => void] {
-  const [state, setState] = useState<T>(() => {
-    if (typeof window === 'undefined') return defaultValue
-    return loadFromStorage(key, defaultValue, schema)
-  })
+  const [state, setState] = useState<T>(defaultValue)
+
+  useEffect(() => {
+    setState(loadFromStorage(key, defaultValue, schema))
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps -- only load once on mount
 
   const setStateAndSave = useCallback(
     (value: T | ((prev: T) => T)) => {
@@ -249,23 +259,25 @@ export function useChatState() {
  * Hook for navigation state persistence
  */
 export function useNavigationState() {
-  const getCurrentDayIndex = () => {
-    const today = new Date()
-    return (today.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
-  }
-
-  const defaultState: NavigationState = {
-    version: '1.0.0',
-    currentDate: new Date(),
-    selectedDay: getCurrentDayIndex(),
-    currentView: 'main',
-  }
-
   const [navigationState, setNavigationState] = useLocalStorageState(
     STORAGE_KEYS.NAVIGATION_STATE,
-    defaultState,
+    DEFAULT_NAVIGATION_STATE,
     NavigationStateSchema
   )
+
+  // When loading from empty storage, use "today" instead of placeholder date
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.NAVIGATION_STATE)
+    if (!stored) {
+      const today = new Date()
+      const selectedDay = (today.getDay() + 6) % 7
+      setNavigationState((prev) => ({
+        ...prev,
+        currentDate: today,
+        selectedDay,
+      }))
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- only run once on mount when storage is empty
 
   const setCurrentDate = useCallback(
     (date: Date) => {

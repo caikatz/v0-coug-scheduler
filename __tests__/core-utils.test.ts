@@ -1,14 +1,12 @@
+import { getCurrentDayIndex, processUserPreferences } from '../lib/utils'
 import {
-  getCurrentDayIndex,
   calculateSuccessPercentage,
-  processUserPreferences,
   createNewTask,
   updateTaskCompletion,
-  validateTaskForm,
   createChatMessage,
-  SURVEY_QUESTIONS,
-  DAYS,
-} from '../lib/core-utils'
+} from '../lib/schedule-utils'
+import { validateTaskForm } from '../lib/schemas'
+import { SURVEY_QUESTIONS, DAYS } from '../lib/constants'
 
 describe('Core Utilities', () => {
   describe('getCurrentDayIndex', () => {

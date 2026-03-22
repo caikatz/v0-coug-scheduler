@@ -45,7 +45,11 @@ export function useAIChat(
         "What's up? How's the semester treating you so far?",
         'Hey there! How have things been going with your schedule?',
       ]
-      return greetings[Math.floor(Math.random() * greetings.length)]
+      const idx =
+        typeof sessionKey === 'number'
+          ? sessionKey % greetings.length
+          : 0
+      return greetings[idx]
     }
 
     // Onboarding: detailed personal introduction
@@ -71,7 +75,7 @@ export function useAIChat(
       "\n\nReady to dive in? Let's start with your classes this semester - I want to go through each one and figure out realistic study hours based on how challenging they are. What classes are you taking?"
 
     return message
-  }, [savedMessages, userPreferences, onboardingCompleted])
+  }, [savedMessages, userPreferences, onboardingCompleted, sessionKey])
 
   // Determine initial messages: either restored or a single opening message
   const initialMessages = useMemo(() => {

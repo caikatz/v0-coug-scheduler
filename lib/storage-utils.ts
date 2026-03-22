@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   CHAT_STATE: 'coug_scheduler_chat_state',
   NAVIGATION_STATE: 'coug_scheduler_navigation_state',
   CALENDAR_URLS: 'coug_scheduler_calendar_urls',
+  DELETE_TASK_DONT_ASK: 'coug_scheduler_delete_task_dont_ask',
 } as const
 
 // localStorage utility functions with Zod validation
@@ -97,11 +98,22 @@ export function removeFromStorage(key: string): boolean {
   }
 }
 
+const CHAT_MESSAGES_PREFIX = 'fred-chat-messages-'
+
 export function clearAllStorage(): boolean {
   try {
     Object.values(STORAGE_KEYS).forEach((key) => {
       localStorage.removeItem(key)
     })
+    // Clear all AI chat message sessions (fred-chat-messages-0, fred-chat-messages-1, etc.)
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(CHAT_MESSAGES_PREFIX)) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key))
     return true
   } catch (error) {
     console.error('Failed to clear localStorage', error)
