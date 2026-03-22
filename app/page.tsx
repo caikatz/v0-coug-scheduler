@@ -170,7 +170,6 @@ export default function ScheduleApp() {
     scheduleItems,
     nextTaskId,
     updateScheduleItems,
-    incrementTaskId,
     setNextTaskId,
     setScheduleState,
   } = useScheduleState()
@@ -584,8 +583,213 @@ export default function ScheduleApp() {
     return { hasOverlap: conflicts.length > 0, conflicts }
   }
 
+  function parseProductiveHoursWindow(
+    productiveHours?: string
+  ): { startMinutes: number; endMinutes: number } {
+    const fallback = { startMinutes: 9 * 60, endMinutes: 17 * 60 }
+    if (!productiveHours) return fallback
+
+    const [startRaw, endRaw] = productiveHours.split('-')
+    if (!startRaw || !endRaw) return fallback
+
+    const parse24Hour = (value: string): number | null => {
+      const [hoursRaw, minutesRaw] = value.trim().split(':')
+      const hours = Number(hoursRaw)
+      const minutes = Number(minutesRaw)
+
+      if (
+        Number.isNaN(hours) ||
+        Number.isNaN(minutes) ||
+        hours < 0 ||
+        hours > 23 ||
+        minutes < 0 ||
+        minutes > 59
+      ) {
+        return null
+      }
+
+      return hours * 60 + minutes
+    }
+
+    const startMinutes = parse24Hour(startRaw)
+    const endMinutes = parse24Hour(endRaw)
+
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      return fallback
+    }
+
+    return { startMinutes, endMinutes }
+  }
+
+  function parseScheduleItemTimeRange(
+    timeRange?: string
+  ): { start: number; end: number } | null {
+    if (!timeRange) return null
+
+    const [startText, endText] = timeRange.split(' - ')
+    if (!startText || !endText) return null
+
+    const parse12Hour = (value: string): number | null => {
+      const match = value.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+      if (!match) return null
+
+      let hours = Number(match[1])
+      const minutes = Number(match[2])
+      const period = match[3].toUpperCase()
+
+      if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+        return null
+      }
+
+      if (period === 'AM' && hours === 12) {
+        hours = 0
+      } else if (period === 'PM' && hours !== 12) {
+        hours += 12
+      }
+
+      return hours * 60 + minutes
+    }
+
+    const start = parse12Hour(startText)
+    const end = parse12Hour(endText)
+    if (start === null || end === null || end <= start) {
+      return null
+    }
+
+    return { start, end }
+  }
+
+  function formatMinutesTo12Hour(totalMinutes: number): string {
+    const hours24 = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    const period = hours24 >= 12 ? 'PM' : 'AM'
+    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12
+    return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`
+  }
+
+  function getNextTaskIdFromSchedule(items: ScheduleItems): number {
+    const maxId = Object.values(items)
+      .flat()
+      .reduce((currentMax, item) => Math.max(currentMax, item.id), 0)
+    return maxId + 1
+  }
+
+  function addSuggestedStudyTasks(
+    items: ScheduleItems,
+    targetDates: Date[],
+    startingTaskId: number
+  ): { updated: ScheduleItems; nextId: number } {
+    const { startMinutes, endMinutes } = parseProductiveHoursWindow(
+      userPreferences?.productiveHours
+    )
+    const minimumBlockMinutes = 60
+    const targetDateStrings = new Set(targetDates.map((d) => formatDateLocal(d)))
+
+    const cleaned: ScheduleItems = { ...items }
+    DAYS.forEach((day) => {
+      cleaned[day] = (cleaned[day] || []).filter((item) => {
+        const typedItem = item as ScheduleItem & { source?: 'ical' | 'suggested' }
+        const isSuggested = typedItem.source === 'suggested'
+        const isTargetDate = !!item.dueDate && targetDateStrings.has(item.dueDate)
+        return !(isSuggested && isTargetDate)
+      })
+    })
+
+    let nextId = startingTaskId
+
+    targetDates.forEach((date) => {
+      const dayIndex = (date.getDay() + 6) % 7
+      const dayKey = DAYS[dayIndex]
+      const dueDate = formatDateLocal(date)
+      const dayItems = (cleaned[dayKey] || []).filter((item) => {
+        if (!item.dueDate) return true
+        return item.dueDate === dueDate
+      })
+
+      const occupiedBlocks = dayItems
+        .map((item) => parseScheduleItemTimeRange(item.time))
+        .filter((block): block is { start: number; end: number } => block !== null)
+        .map((block) => ({
+          start: Math.max(startMinutes, block.start),
+          end: Math.min(endMinutes, block.end),
+        }))
+        .filter((block) => block.end > block.start)
+        .sort((a, b) => a.start - b.start)
+
+      const mergedBlocks: Array<{ start: number; end: number }> = []
+      occupiedBlocks.forEach((block) => {
+        const lastBlock = mergedBlocks[mergedBlocks.length - 1]
+        if (!lastBlock || block.start > lastBlock.end) {
+          mergedBlocks.push({ ...block })
+        } else {
+          lastBlock.end = Math.max(lastBlock.end, block.end)
+        }
+      })
+
+      let largestGapStart = -1
+      let largestGapEnd = -1
+      let cursor = startMinutes
+
+      mergedBlocks.forEach((block) => {
+        if (block.start - cursor > largestGapEnd - largestGapStart) {
+          largestGapStart = cursor
+          largestGapEnd = block.start
+        }
+        cursor = Math.max(cursor, block.end)
+      })
+
+      if (endMinutes - cursor > largestGapEnd - largestGapStart) {
+        largestGapStart = cursor
+        largestGapEnd = endMinutes
+      }
+
+      const gapSize = largestGapEnd - largestGapStart
+      if (gapSize < minimumBlockMinutes) {
+        return
+      }
+
+      const suggestedLength = Math.min(90, gapSize)
+      const suggestionStart = largestGapStart
+      const suggestionEnd = suggestionStart + suggestedLength
+
+      const suggestedTask: ScheduleItem & { source: 'suggested' } = {
+        id: nextId,
+        title: 'Suggested Study Session',
+        priority: 'medium',
+        completed: false,
+        source: 'suggested',
+        dueDate,
+        time: `${formatMinutesTo12Hour(suggestionStart)} - ${formatMinutesTo12Hour(suggestionEnd)}`,
+      }
+
+      cleaned[dayKey] = [...(cleaned[dayKey] || []), suggestedTask]
+      nextId += 1
+    })
+
+    return { updated: cleaned, nextId }
+  }
+
   function formatDateLocal(d: Date): string {
     return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+  }
+
+  function parseLocalDateString(dateString: string): Date {
+    const [year, month, day] = dateString.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  function getDatesInRange(startDateString: string, endDateString: string): Date[] {
+    const dates: Date[] = []
+    const startDate = parseLocalDateString(startDateString)
+    const endDate = parseLocalDateString(endDateString)
+
+    const current = new Date(startDate)
+    while (current <= endDate) {
+      dates.push(new Date(current))
+      current.setDate(current.getDate() + 1)
+    }
+
+    return dates
   }
 
   function navigateWeek(direction: 'prev' | 'next') {
@@ -636,62 +840,55 @@ export default function ScheduleApp() {
 
         if (data.success && data.schedule) {
           console.time('schedule-processing')
-          
-          // Get current week dates
-          const weekDates = getWeekDates(currentDateObj)
 
-        if (data.schedule.update_type === 'none') {
-          // No update - just exit
-          console.log('✅ No schedule changes detected')
-        } else if (data.schedule.update_type === 'partial') {
-          const updated = applyScheduleChanges(
-            scheduleItems,
-            data.schedule.changes || [],
-            weekDates,
-            nextTaskId,
+          // Get current week dates for AI schedule transforms
+          const weekDates = getWeekDates(currentDateObj)
+          const termDates = getDatesInRange(
+            WSU_SEMESTER.current.start,
             WSU_SEMESTER.current.end
           )
-          
-          // Count new tasks added
-          const oldTaskCount = Object.values(scheduleItems).flat().length
-          const newTaskCount = Object.values(updated).flat().length
-          const addedTasks = newTaskCount - oldTaskCount
-          
-          updateScheduleItems(() => updated)
-      
-      // Increment task ID for new items
-      for (let i = 0; i < addedTasks; i++) {
-        incrementTaskId()
-      }
-        } else if (data.schedule.update_type === 'full') {
-          const transformedSchedule = transformAIScheduleToItems(
-            {
-              update_type: data.schedule.update_type,
-              weekly_schedule: data.schedule.weekly_schedule || [],
-              schedule_summary: data.schedule.schedule_summary,
-              notes: data.schedule.notes,
-            },
-            weekDates,
-            nextTaskId
+          let resultingSchedule: ScheduleItems = scheduleItems
+
+          if (data.schedule.update_type === 'none') {
+            // No AI change, still refresh suggestions for the full term
+            console.log('✅ No schedule changes detected')
+          } else if (data.schedule.update_type === 'partial') {
+            resultingSchedule = applyScheduleChanges(
+              scheduleItems,
+              data.schedule.changes || [],
+              weekDates,
+              nextTaskId,
+              WSU_SEMESTER.current.end
+            )
+          } else if (data.schedule.update_type === 'full') {
+            resultingSchedule = transformAIScheduleToItems(
+              {
+                update_type: data.schedule.update_type,
+                weekly_schedule: data.schedule.weekly_schedule || [],
+                schedule_summary: data.schedule.schedule_summary,
+                notes: data.schedule.notes,
+              },
+              weekDates,
+              nextTaskId
+            )
+          }
+
+          const { updated: suggestedSchedule } = addSuggestedStudyTasks(
+            resultingSchedule,
+            termDates,
+            getNextTaskIdFromSchedule(resultingSchedule)
           )
 
-          // Full overhaul: replace previous schedule entirely
-          updateScheduleItems(() => transformedSchedule)
+          updateScheduleItems(() => suggestedSchedule)
+          setNextTaskId(getNextTaskIdFromSchedule(suggestedSchedule))
 
-          const totalNewTasks = Object.values(transformedSchedule).flat().length
-      for (let i = 0; i < totalNewTasks; i++) {
-        incrementTaskId()
-      }
-    }
+          console.timeEnd('schedule-processing')
+          console.log('✅ Frontend: Schedule processing completed')
 
-    console.timeEnd('schedule-processing')
-    console.log('✅ Frontend: Schedule processing completed')
-    
-    if (!onboardingCompleted) {
-      setOnboardingCompleted(true)
-    }
-        
-      }
+          if (!onboardingCompleted) {
+            setOnboardingCompleted(true)
+          }
+        }
       } catch (error) {
         // Fail silently as requested
         console.error('❌ Frontend: Failed to generate schedule:', error)
@@ -783,6 +980,13 @@ export default function ScheduleApp() {
       repeatDays: taskWithRepeat.repeatDays ?? [],
     })
     setShowTaskEditor(true)
+  }
+
+  function handleDeleteTask(taskId: number, dayKey: string) {
+    updateScheduleItems((items) => ({
+      ...items,
+      [dayKey]: (items[dayKey] || []).filter((task) => task.id !== taskId),
+    }))
   }
 
   function handleSaveTask() {
@@ -1917,7 +2121,21 @@ export default function ScheduleApp() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {item.source == 'suggested' && (                   
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteTask(item.id, DAYS[selectedDay])
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                    )}
                     {getPriorityIcon(item.priority)}
+                    
                   </div>
                 </div>
               </Card>
@@ -1976,6 +2194,17 @@ export default function ScheduleApp() {
                     {item.title}
                   </span>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteTask(item.id, DAYS[selectedDay])
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             ))}
 
