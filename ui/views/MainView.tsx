@@ -129,6 +129,13 @@ export default function MainView({
     // Task completion toggled
   }
 
+  function handleDeleteTask(taskId: number, dayKey: string) {
+    updateScheduleItems((items) => ({
+      ...items,
+      [dayKey]: (items[dayKey] || []).filter((task) => task.id !== taskId),
+    }))
+  }
+
   function handleReset() {
     // Clear all localStorage data
     clearAllStorage()
@@ -525,6 +532,19 @@ export default function MainView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {item.source === 'suggested' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteTask(item.id, DAYS[selectedDay])
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
                     {getPriorityIcon(item.priority)}
                   </div>
                 </div>
@@ -584,6 +604,19 @@ export default function MainView({
                     {item.title}
                   </span>
                 </div>
+                {item.source === 'suggested' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteTask(item.id, DAYS[selectedDay])
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             ))}
 
