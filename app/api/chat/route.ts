@@ -1,18 +1,38 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { streamText, convertToModelMessages, tool, type UIMessage } from 'ai'
+import {
+  streamText,
+  convertToModelMessages,
+  tool,
+  stepCountIs,
+  type UIMessage,
+} from 'ai'
 import { z } from 'zod'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
 import { findRelevantCourses } from '@/app/api/vector-encoding/course-search'
-import { formatCoursesForPrompt } from '@/app/api/vector-encoding/format-courses'
+import {
+  GetScheduleInputSchema,
+  CreateScheduleItemsInputSchema,
+  RemoveScheduleItemsInputSchema,
+  executeGetSchedule,
+  executeCreateScheduleItems,
+  executeRemoveScheduleItems,
+} from '@/lib/schedule-tools'
+import { GEMINI_MODELS, ACTIVE_GEMINI_MODEL, DEBUG } from '@/lib/constants'
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30
+const modelId = GEMINI_MODELS[ACTIVE_GEMINI_MODEL]
 
-//Create Google AI provider with custom API key
+export const maxDuration = 60
+
+const geminiKey = process.env.NEXT_GEMINI_API_KEY ?? ''
+const maskedKey = geminiKey.length > 8
+  ? `${geminiKey.slice(0, 4)}...${geminiKey.slice(-4)} (${geminiKey.length} chars)`
+  : '(not set or too short)'
+console.log('[Chat API] Gemini API key loaded:', maskedKey)
+
 const google = createGoogleGenerativeAI({
-  apiKey: process.env.NEXT_GEMINI_API_KEY,
+  apiKey: geminiKey,
 })
 
 const phClient = new PostHog(
@@ -25,6 +45,7 @@ interface ChatRequestBody {
   userPreferences?: UserPreferences | null
   schedule?: ScheduleItems
   onboardingCompleted?: boolean
+  nextTaskId?: number
 }
 
 function createOnboardingPrompt(contextInfo: string) {
@@ -446,32 +467,70 @@ Your goal: Be the supportive academic friend they can always count on for encour
 }
 
 export async function POST(req: Request) {
+  const requestStart = Date.now()
   const {
     messages,
     userPreferences,
     schedule,
     onboardingCompleted,
+    nextTaskId,
   }: ChatRequestBody = await req.json()
 
-  const lastUserMessage = messages
-  .filter((m) => m.role === 'user')
-  .at(-1)
-  ?.parts?.[0]?.text
+  const lastUserMsg = messages.filter((m) => m.role === 'user').at(-1)
+  const lastUserText = lastUserMsg?.parts?.find(
+    (p): p is { type: 'text'; text: string } => (p as { type: string }).type === 'text'
+  )?.text
 
-let courseContext = ''
-if (lastUserMessage) {
-  try {
-    const courses = await findRelevantCourses(lastUserMessage, 3)
-    if (courses.length > 0) {
-      courseContext = formatCoursesForPrompt(courses)
-    }
-  } catch (error) {
-    console.error('Failed to fetch relevant courses:', error)
+  if (DEBUG) {
+    console.log('\n=== [Chat API] Incoming Request ===')
+    console.log('[Chat API] Time:', new Date().toISOString())
+    console.log('[Chat API] Message count:', messages.length)
+    console.log('[Chat API] Last user message:', lastUserText?.slice(0, 200) ?? '(none)')
+    console.log('[Chat API] Onboarding completed:', onboardingCompleted)
+    console.log('[Chat API] Has preferences:', !!userPreferences)
+    console.log('[Chat API] Schedule keys:', schedule ? Object.keys(schedule).length : 0)
+    console.log('[Chat API] Next task ID:', nextTaskId)
+  } else {
+    console.log(`[Chat API] Request — msgs: ${messages.length}, user: "${lastUserText?.slice(0, 80) ?? '(none)'}"`)
   }
-}
 
-  // Convert messages to the format expected by AI SDK using the built-in converter
-  const coreMessages = await convertToModelMessages(messages)
+  const currentSchedule: ScheduleItems = schedule ?? {}
+  let currentNextId = nextTaskId ?? 1
+
+  const rawCoreMessages = await convertToModelMessages(messages)
+
+  // Sanitize: collapse consecutive same-role messages (caused by empty-response retries)
+  // Gemini requires strictly alternating user/assistant turns.
+  const deduped = rawCoreMessages.reduce<typeof rawCoreMessages>((acc, msg) => {
+    const last = acc[acc.length - 1]
+    if (last && last.role === msg.role) {
+      if (DEBUG) console.warn(`[Chat API] Collapsing consecutive ${msg.role} messages (index ${acc.length})`)
+      acc[acc.length - 1] = msg
+    } else {
+      acc.push(msg)
+    }
+    return acc
+  }, [])
+
+  if (deduped.length !== rawCoreMessages.length && DEBUG) {
+    console.warn(`[Chat API] Sanitized messages: ${rawCoreMessages.length} → ${deduped.length} (removed ${rawCoreMessages.length - deduped.length} duplicates)`)
+  }
+
+  // Strip verbose tool results from older messages to reduce token usage.
+  // Keep full results only in the last 6 messages (~3 user/assistant exchanges).
+  const RECENT_WINDOW = 6
+  const coreMessages = deduped.map((msg, idx) => {
+    if (idx >= deduped.length - RECENT_WINDOW) return msg
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg
+
+    const trimmedContent = msg.content.map((part: Record<string, unknown>) => {
+      if (part.type === 'tool-result') {
+        return { ...part, result: '[trimmed — older message]' }
+      }
+      return part
+    })
+    return { ...msg, content: trimmedContent }
+  })
 
   // Build context string for system prompt
   let contextInfo = ''
@@ -494,53 +553,238 @@ if (lastUserMessage) {
   }
 
   if (schedule && Object.keys(schedule).length > 0) {
-    contextInfo += `\nCurrent Schedule:`
-    Object.entries(schedule).forEach(([day, tasks]) => {
-      if (tasks && tasks.length > 0) {
-        contextInfo += `\n${day}: ${tasks
-          .map(
-            (task) =>
-              `${task.title} ${task.time ? `(${task.time})` : ''} ${
-                task.completed ? '✓' : '○'
-              }`
-          )
-          .join(', ')}`
-      }
-    })
+    const totalItems = Object.values(schedule).flat().length
+    contextInfo += `\nThe student has ${totalItems} items across ${Object.keys(schedule).length} days on their calendar. Use the get_schedule tool to see the full schedule when needed.`
   }
 
   const basePrompt = onboardingCompleted
     ? createPostOnboardingPrompt(contextInfo)
     : createOnboardingPrompt(contextInfo)
 
+  const toolInstructions = [
+    '## TOOLS AVAILABLE',
+    '',
+    'You have access to the following tools to manage the student\'s schedule:',
+    `Today\'s date is ${new Date().toISOString().split('T')[0]}.`,
+    '',
+    '### get_schedule',
+    'Retrieves the current schedule. Call this ONCE before creating or removing items to check for conflicts.',
+    '- Call with NO arguments to get the full schedule (preferred — avoids multiple calls).',
+    '- Optional: specify a **date** (YYYY-MM-DD) or **day** (e.g. "Monday") to filter to a single day.',
+    '- **Do NOT call get_schedule multiple times for different days.** One unfiltered call is sufficient.',
+    '',
+    '### create_schedule_items',
+    'Adds one or more items to the student\'s calendar.',
+    'Required fields per item:',
+    '- **title** (string): Name of the event, e.g. "CPTS 321 Lecture"',
+    '- **date** (string, YYYY-MM-DD) OR **day** (string, e.g. "Monday"): Provide one or the other.',
+    '  - Use **date** for specific one-off events (e.g. "2026-03-20").',
+    '  - Use **day** for recurring weekly events or when the user only specifies a day name.',
+    '  - If the user says "tomorrow" or "next Friday", compute the actual date and use **date**.',
+    '- **start_time** (string): 24h format, e.g. "09:00"',
+    'Optional fields (have sensible defaults):',
+    '- **end_time** (string): 24h format, e.g. "10:20". Defaults to 1 hour after start_time.',
+    '- **type** (string): One of "class", "study", "work", "athletic", "extracurricular", "personal". Defaults to "personal".',
+    '- **is_recurring** (boolean): true if it repeats weekly until semester end. Defaults to false. Requires **day** (not date) when true.',
+    '- **location** (string): Optional location.',
+    '',
+    '**CRITICAL**: Before calling this tool, you MUST have at minimum the title, a date or day, and start time. If the user says something vague like "schedule a meeting", you MUST ask for:',
+    '  - When? (specific date or day of the week)',
+    '  - What time does it start?',
+    'Do NOT guess the start time. Always confirm with the student first.',
+    '',
+    '### remove_schedule_items',
+    'Removes items from the calendar by title match.',
+    '- **match_titles**: Array of title strings to match (partial match, case-insensitive)',
+    '- Optional: specify a **date** (YYYY-MM-DD) or **day** to scope removal.',
+    '',
+    '### search_courses',
+    'Search the WSU course catalog by semantic similarity. Use when the student mentions a course name, subject, or you need to look up course details.',
+    '- **query** (string): Search query, e.g. "CPTS 321" or "software engineering" or "organic chemistry".',
+    'Returns up to 5 matching courses with details (title, credits, prerequisites, description). Only high-relevance courses are returned.',
+    '',
+    '### complete_onboarding (onboarding only)',
+    'Call this ONLY when the student has agreed to their schedule and you are ready to generate it.',
+    '',
+    '## TOOL USAGE RULES',
+    '1. ALWAYS call get_schedule ONCE (with no arguments) before creating or removing items to check for conflicts. Never call it multiple times per request.',
+    '2. NEVER guess required fields — ask the student if anything is missing.',
+    '3. When creating schedule items, add ALL discussed items in a single create_schedule_items call when possible.',
+    '4. When the user mentions a specific date like "March 20th" or "tomorrow", use the **date** field with YYYY-MM-DD format.',
+    '5. When the user mentions a recurring day like "every Monday", use the **day** field with is_recurring: true.',
+    '6. When the student mentions a course or class, call **search_courses** to look up official details. Do NOT invent course names, credits, or requirements.',
+    '',
+    '## ABSOLUTE RULES — VIOLATING THESE IS A CRITICAL FAILURE',
+    '',
+    '**RULE A — NEVER LIE ABOUT ACTIONS**:',
+    'NEVER say "I\'ve added", "I\'ve removed", "it\'s on your schedule", or any similar claim UNLESS you actually called create_schedule_items or remove_schedule_items in this response AND the tool returned success.',
+    'If you only called search_courses or get_schedule, you have NOT added anything. Do NOT tell the student you did.',
+    '',
+    '**RULE B — ALWAYS COMPLETE THE FULL TOOL CHAIN**:',
+    'When a student asks to add/schedule/create something and you have all the required info (title, day/date, time), you MUST execute the COMPLETE chain in one response:',
+    '  search_courses (if it\'s a class) → get_schedule → create_schedule_items → then confirm.',
+    'Do NOT stop after search_courses or get_schedule. Do NOT say "I\'ll add that for you" and then just produce text. CALL THE TOOL.',
+    '',
+    '**RULE C — REMOVALS REQUIRE THE TOOL**:',
+    'When a student asks to remove/delete something, you MUST call remove_schedule_items. Do NOT just say it was removed.',
+    '',
+    '**RULE D — TEXT-ONLY RESPONSES MEAN NO CHANGES WERE MADE**:',
+    'If your response contains only text and no tool calls to create_schedule_items or remove_schedule_items, then NOTHING was added or removed. Your text must reflect this reality.',
+  ].join('\n')
 
   const systemPrompt = `
   ${basePrompt}
 
-  ${courseContext}
+  ${toolInstructions}
 
   IMPORTANT RULES ABOUT COURSES:
-  - Use ONLY the official course information above
+  - ALWAYS use the search_courses tool to look up course information when a student mentions a class
+  - Use ONLY the official course information returned by search_courses
   - Do NOT invent course names, credits, or requirements
-  - If no course information is provided, say you don’t have enough data
+  - If search_courses returns no results, tell the student you could not find that course in the catalog
   `
 
-  // Onboarding-only tool: Fred calls this when the conversation is complete and schedule should be generated
-  const onboardingTools = onboardingCompleted
-    ? undefined
+  if (DEBUG) {
+    console.log('[Chat API] System prompt length:', systemPrompt.length, 'chars')
+    console.log('[Chat API] Core messages count:', coreMessages.length)
+    console.log('[Chat API] Core message roles:', coreMessages.map((m, i) => `${i}:${m.role}`).join(', '))
+    for (const [i, msg] of coreMessages.entries()) {
+      const content = Array.isArray(msg.content)
+        ? msg.content.map((c: { type?: string; text?: string }) => c.type === 'text' ? c.text?.slice(0, 80) : `[${c.type}]`).join(' ')
+        : String(msg.content).slice(0, 80)
+      console.log(`[Chat API] Message ${i} (${msg.role}): ${content}${String(content).length >= 80 ? '...' : ''}`)
+    }
+    console.log('[Chat API] Prompt type:', onboardingCompleted ? 'post-onboarding' : 'onboarding')
+  }
+
+  const now = new Date()
+
+  const baseTools = {
+    get_schedule: tool({
+      description:
+        'Get the current schedule to check for conflicts before adding items. Call this before create_schedule_items.',
+      inputSchema: GetScheduleInputSchema,
+      execute: async (input: z.infer<typeof GetScheduleInputSchema>) => {
+        const result = executeGetSchedule(currentSchedule, currentNextId, input, now)
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] get_schedule ---')
+          console.log('[Tool] Input:', JSON.stringify(input))
+          console.log('[Tool] Result: %d date keys returned', Object.keys(result.schedule).length)
+        }
+        return result
+      },
+    }),
+
+    create_schedule_items: tool({
+      description:
+        'Add one or more items to the calendar. Requires title, date or day, and start_time. Use date (YYYY-MM-DD) for specific dates; use day for recurring/weekly items. Optional: end_time, type, is_recurring, location.',
+      inputSchema: CreateScheduleItemsInputSchema,
+      execute: async (input: z.infer<typeof CreateScheduleItemsInputSchema>) => {
+        const { result, updatedSchedule, newNextTaskId } =
+          executeCreateScheduleItems(
+            currentSchedule,
+            currentNextId,
+            input,
+            now
+          )
+        Object.assign(currentSchedule, updatedSchedule)
+        currentNextId = newNextTaskId
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] create_schedule_items ---')
+          console.log('[Tool] Input:', JSON.stringify(input, null, 2))
+          console.log('[Tool] Created:', result.created.length, 'items')
+          console.log('[Tool] Conflicts:', result.conflicts.length > 0 ? result.conflicts : 'none')
+          console.log('[Tool] Created items:', JSON.stringify(result.created))
+        }
+        return result
+      },
+    }),
+
+    remove_schedule_items: tool({
+      description:
+        'Remove schedule items by title match. Specify match_titles and optionally a day.',
+      inputSchema: RemoveScheduleItemsInputSchema,
+      execute: async (input: z.infer<typeof RemoveScheduleItemsInputSchema>) => {
+        const { result, updatedSchedule } = executeRemoveScheduleItems(
+          currentSchedule,
+          input,
+          now
+        )
+        Object.assign(currentSchedule, updatedSchedule)
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] remove_schedule_items ---')
+          console.log('[Tool] Input:', JSON.stringify(input))
+          console.log('[Tool] Removed:', result.removed_count, 'items')
+        }
+        return result
+      },
+    }),
+
+    search_courses: tool({
+      description:
+        'Search the WSU course catalog by semantic similarity. Returns up to 5 matching courses with official details. Use when the student mentions a course or you need to look up course info.',
+      inputSchema: z.object({
+        query: z.string().min(1).describe('Search query - course name, subject, number, or topic. e.g. "CPTS 321", "organic chemistry", "software engineering"'),
+      }),
+      execute: async (input: { query: string }) => {
+        const searchStart = Date.now()
+        const { courses, scoredCourses } = await findRelevantCourses(input.query, 5, 0.62)
+        if (DEBUG) {
+          console.log('\n--- [Tool Call] search_courses ---')
+          console.log('[Tool] Query:', input.query)
+          console.log('[Tool] Search took:', Date.now() - searchStart, 'ms')
+          console.log('[Tool] Results:', scoredCourses.length, 'courses above threshold')
+          if (scoredCourses.length > 0) {
+            console.log('[Tool] Top matches:', JSON.stringify(scoredCourses))
+          }
+        }
+        return {
+          success: true,
+          courses,
+          scoredCourses,
+          count: courses.length,
+        }
+      },
+    }),
+  }
+
+  const tools = onboardingCompleted
+    ? baseTools
     : {
+        ...baseTools,
         complete_onboarding: tool({
           description:
-            'Call this when the student has agreed to their schedule and you are ready to generate it. Only call after you have provided a summary and the student expressed satisfaction. Do NOT pass any message - call with empty object.',
+            'Call this when the student has agreed to their schedule and you are ready to generate it. Only call after you have provided a summary and the student expressed satisfaction.',
           inputSchema: z.object({}),
-          execute: async () => ({}),
+          execute: async () => {
+            if (DEBUG) {
+              console.log('\n--- [Tool Call] complete_onboarding ---')
+              console.log('[Tool] Schedule date keys:', Object.keys(currentSchedule).length)
+              console.log('[Tool] Total items:', Object.values(currentSchedule).flat().length)
+              console.log('[Tool] Next task ID:', currentNextId)
+            }
+            return {
+              success: true,
+              schedule: currentSchedule,
+              nextTaskId: currentNextId,
+            }
+          },
         }),
       }
 
+  let stepIndex = 0
+  const stepTimings: number[] = []
 
-  // Generate streaming response using Gemini Flash 2.5
+  if (DEBUG) {
+    console.log('\n=== [Chat API] Starting Gemini Stream ===')
+    console.log(`[Chat API] Model: ${modelId}`)
+    console.log('[Chat API] Tools available:', Object.keys(tools).join(', '))
+    console.log('[Chat API] Max steps: 8')
+    console.log('[Chat API] Input messages to Gemini:', coreMessages.length)
+  }
+
   const result = streamText({
-    model: withTracing(google('gemini-2.5-flash'), phClient, {
+    model: withTracing(google(modelId), phClient, {
       posthogProperties: {
         conversationType: onboardingCompleted
           ? 'post-onboarding'
@@ -554,8 +798,83 @@ if (lastUserMessage) {
     }),
     system: systemPrompt,
     messages: coreMessages,
-    tools: onboardingTools,
-    onFinish: async () => {
+    tools,
+    stopWhen: stepCountIs(8),
+    onStepFinish: async (stepResult) => {
+      stepIndex++
+      const stepTime = Date.now() - requestStart - stepTimings.reduce((a, b) => a + b, 0)
+      stepTimings.push(stepTime)
+
+      const { text, toolCalls, toolResults, usage, finishReason } = stepResult
+      const stepType = ('stepType' in stepResult ? stepResult.stepType : null)
+        ?? (toolCalls?.length ? 'tool-calls' : 'text')
+
+      if (DEBUG) {
+        console.log(`\n>>> [Gemini] Step ${stepIndex} completed (${stepTime}ms) <<<`)
+        console.log(`[Gemini] Step type: ${stepType}`)
+        console.log(`[Gemini] Finish reason: ${finishReason}`)
+
+        if (usage) {
+          console.log(`[Gemini] Tokens — input: ${usage.inputTokens ?? 0}, output: ${usage.outputTokens ?? 0}, total: ${usage.totalTokens ?? 0}`)
+          if ('reasoningTokens' in usage && usage.reasoningTokens) {
+            console.log(`[Gemini] Reasoning tokens: ${usage.reasoningTokens}`)
+          }
+          if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
+            console.log(`[Gemini] Cached input tokens: ${usage.cachedInputTokens}`)
+          }
+        }
+
+        if (toolCalls && toolCalls.length > 0) {
+          console.log(`[Gemini] Tool calls in this step:`)
+          for (const tc of toolCalls) {
+            const name = tc.toolName ?? (tc as Record<string, unknown>).name ?? 'unknown'
+            const args = tc.args ?? (tc as Record<string, unknown>).input ?? (tc as Record<string, unknown>).arguments
+            console.log(`  -> ${name}(${JSON.stringify(args)})`)
+          }
+        }
+
+        if (toolResults && toolResults.length > 0) {
+          console.log(`[Gemini] Tool results returned to Gemini:`)
+          for (const tr of toolResults) {
+            const name = tr.toolName ?? (tr as Record<string, unknown>).name ?? 'unknown'
+            const raw = tr.result ?? (tr as Record<string, unknown>).output
+            const resultStr = JSON.stringify(raw) ?? '(no data)'
+            console.log(`  <- ${name}: ${resultStr.length > 300 ? resultStr.slice(0, 300) + '...' : resultStr}`)
+          }
+        }
+
+        if (text && text.length > 0) {
+          console.log(`[Gemini] Text output: ${text.length} chars — "${text.slice(0, 150)}${text.length > 150 ? '...' : ''}"`)
+        }
+      }
+
+      if ((!text || text.length === 0) && (!toolCalls || toolCalls.length === 0)) {
+        console.warn(`[Gemini] WARNING: Empty response — no text and no tool calls.`)
+      }
+    },
+    onFinish: async ({ text, steps, usage }) => {
+      const elapsed = Date.now() - requestStart
+      if (DEBUG) {
+        console.log('\n=== [Chat API] Stream Finished ===')
+        console.log('[Chat API] Total time:', elapsed, 'ms')
+        console.log('[Chat API] Total steps:', steps?.length ?? 0)
+        console.log('[Chat API] Step durations:', stepTimings.map((t, i) => `step${i + 1}=${t}ms`).join(', '))
+        console.log('[Chat API] Final response length:', text?.length ?? 0, 'chars')
+        if (usage) {
+          console.log('[Chat API] Cumulative tokens — input: %d, output: %d, total: %d',
+            usage.inputTokens ?? 0, usage.outputTokens ?? 0, usage.totalTokens ?? 0)
+          if ('reasoningTokens' in usage && usage.reasoningTokens) {
+            console.log('[Chat API] Cumulative reasoning tokens:', usage.reasoningTokens)
+          }
+          if ('cachedInputTokens' in usage && usage.cachedInputTokens) {
+            console.log('[Chat API] Cumulative cached input tokens:', usage.cachedInputTokens)
+          }
+        }
+        console.log('=== [Chat API] End ===\n')
+      } else {
+        const tokens = usage ? `${usage.inputTokens ?? 0}in/${usage.outputTokens ?? 0}out` : 'n/a'
+        console.log(`[Chat API] Done — ${elapsed}ms, ${steps?.length ?? 0} steps, ${tokens}, ${text?.length ?? 0} chars`)
+      }
       await phClient.flush()
     },
   })
