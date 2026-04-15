@@ -2,23 +2,30 @@ import { embedText } from './embed'
 import { DEBUG } from '@/lib/constants'
 import courseEmbeddings from './data/course-embeddings.json'
 
-interface CourseEmbedding {
-  course_id: string
+/**
+ * One row in course-embeddings.json: full course record + vector.
+ * Schema: schedules.wsu.edu fields.
+ */
+export type CourseEmbeddingRow = Record<string, unknown> & {
+  course_id: number
   prefix: string
-  number: string
   subject: string
-  longTitle?: string
-  shortTitle: string
-  creditsPhrase: string
-  requisitePhrase?: string
-  typicallyOffered?: string
-  description: string
+  courseNumber: number
+  title: string
   embedding: number[]
+  sections?: unknown[]
 }
 
-/**
- * Calculate cosine similarity between two vectors
- */
+export type CourseSearchResult = Omit<CourseEmbeddingRow, 'embedding'>
+
+export type ScoredCourseSummary = {
+  course_id: number
+  subject: string
+  courseNumber: number
+  title: string
+  score: number
+}
+
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (vecA.length !== vecB.length) {
     throw new Error('Vectors must have the same length')
@@ -45,22 +52,23 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 }
 
 /**
- * Find the most relevant courses based on semantic similarity.
- * @param minScore - minimum cosine similarity to include (default 0.62)
+ * Semantic search over embedded course identity (title, subject, prefix, courseNumber, course_id).
+ * Returns full course records including all `sections` from course-embeddings.json.
  */
 export async function findRelevantCourses(
   query: string,
   limit = 5,
   minScore = 0.62
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<{ courses: any[]; scoredCourses: { course_id: string; shortTitle: string; score: number }[] }> {
+): Promise<{ courses: CourseSearchResult[]; scoredCourses: ScoredCourseSummary[] }> {
   if (DEBUG) console.log('Vector search query:', query)
 
   const queryVector = await embedText(query)
 
-  const coursesWithScores = (courseEmbeddings as CourseEmbedding[]).map((course) => ({
-    ...course,
-    score: cosineSimilarity(queryVector, course.embedding)
+  const rows = courseEmbeddings as CourseEmbeddingRow[]
+
+  const coursesWithScores = rows.map((row) => ({
+    ...row,
+    score: cosineSimilarity(queryVector, row.embedding),
   }))
 
   const topCourses = coursesWithScores
@@ -69,24 +77,31 @@ export async function findRelevantCourses(
     .slice(0, limit)
 
   if (DEBUG) {
-    console.log('Search Results:', JSON.stringify(
-      topCourses.map(c => ({ 
-        course_id: c.course_id, 
-        title: c.shortTitle, 
-        score: c.score.toFixed(4)
-      })), 
-      null, 
-      2
-    ))
+    console.log(
+      'Search Results:',
+      JSON.stringify(
+        topCourses.map((c) => ({
+          course_id: c.course_id,
+          title: c.title,
+          score: c.score.toFixed(4),
+        })),
+        null,
+        2
+      )
+    )
   }
 
-  const scoredCourses = topCourses.map((c) => ({
+  const scoredCourses: ScoredCourseSummary[] = topCourses.map((c) => ({
     course_id: c.course_id,
-    shortTitle: c.shortTitle,
+    subject: c.subject,
+    courseNumber: c.courseNumber,
+    title: c.title,
     score: Math.round(c.score * 10000) / 10000,
   }))
 
-  const courses = topCourses.map(({ embedding, score, ...course }) => course)
+  const courses: CourseSearchResult[] = topCourses.map(
+    ({ embedding: _emb, score: _score, ...course }) => course as CourseSearchResult
+  )
 
   return { courses, scoredCourses }
 }

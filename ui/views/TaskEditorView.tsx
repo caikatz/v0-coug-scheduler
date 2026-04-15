@@ -204,7 +204,7 @@ export default function TaskEditorView({
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 max-w-md mx-auto">
+    <div className="min-h-dvh h-dvh bg-background p-4 w-full max-w-full sm:max-w-md mx-auto flex flex-col">
       <div className="flex items-center gap-3 mb-6">
         <Button
           variant="ghost"

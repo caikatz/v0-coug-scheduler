@@ -371,7 +371,7 @@ export default function ChatView({
   }
 
   return (
-    <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
+    <div className="min-h-dvh h-dvh bg-background flex flex-col w-full max-w-full sm:max-w-md mx-auto relative">
       <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-muted/40 to-muted/20 border-b border-border/50 flex-shrink-0">
         <Button
           variant="ghost"
@@ -542,7 +542,7 @@ export default function ChatView({
             <Button
               size="lg"
               onClick={handleBackToMain}
-              className="w-full max-w-sm bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               &larr; View your schedule
             </Button>

@@ -6,11 +6,13 @@ import {
   stepCountIs,
   type UIMessage,
 } from 'ai'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
 import type { UserPreferences, ScheduleItems } from '@/lib/schemas'
-import { findRelevantCourses } from '@/app/api/vector-encoding/course-search'
+import { searchCourses } from '@/app/api/vector-encoding/unified-search'
+import { formatUnifiedResultsForPrompt } from '@/app/api/vector-encoding/format-courses'
 import {
   GetScheduleInputSchema,
   CreateScheduleItemsInputSchema,
@@ -468,13 +470,39 @@ Your goal: Be the supportive academic friend they can always count on for encour
 
 export async function POST(req: Request) {
   const requestStart = Date.now()
+
+  const raw = await req.text()
+  if (!raw.trim()) {
+    return NextResponse.json(
+      { error: 'Empty request body' },
+      { status: 400 }
+    )
+  }
+
+  let body: ChatRequestBody
+  try {
+    body = JSON.parse(raw) as ChatRequestBody
+  } catch {
+    return NextResponse.json(
+      { error: 'Invalid JSON in request body' },
+      { status: 400 }
+    )
+  }
+
   const {
     messages,
     userPreferences,
     schedule,
     onboardingCompleted,
     nextTaskId,
-  }: ChatRequestBody = await req.json()
+  } = body
+
+  if (!Array.isArray(messages)) {
+    return NextResponse.json(
+      { error: 'Invalid body: messages must be an array' },
+      { status: 400 }
+    )
+  }
 
   const lastUserMsg = messages.filter((m) => m.role === 'user').at(-1)
   const lastUserText = lastUserMsg?.parts?.find(
@@ -722,27 +750,33 @@ export async function POST(req: Request) {
 
     search_courses: tool({
       description:
-        'Search the WSU course catalog by semantic similarity. Returns up to 5 matching courses with official details. Use when the student mentions a course or you need to look up course info.',
+        'Search WSU courses by semantic similarity. Returns two result sets: (1) current-term schedule courses with sections/times/enrollment, and (2) catalog courses with descriptions/prerequisites/typically offered. Use when the student mentions a course or you need to look up course info.',
       inputSchema: z.object({
         query: z.string().min(1).describe('Search query - course name, subject, number, or topic. e.g. "CPTS 321", "organic chemistry", "software engineering"'),
       }),
       execute: async (input: { query: string }) => {
         const searchStart = Date.now()
-        const { courses, scoredCourses } = await findRelevantCourses(input.query, 5, 0.62)
+        const results = await searchCourses(input.query, 5, 0.62)
+        const formattedPrompt = formatUnifiedResultsForPrompt(results)
         if (DEBUG) {
           console.log('\n--- [Tool Call] search_courses ---')
           console.log('[Tool] Query:', input.query)
           console.log('[Tool] Search took:', Date.now() - searchStart, 'ms')
-          console.log('[Tool] Results:', scoredCourses.length, 'courses above threshold')
-          if (scoredCourses.length > 0) {
-            console.log('[Tool] Top matches:', JSON.stringify(scoredCourses))
+          console.log('[Tool] Schedule hits:', results.schedule.scoredCourses.length)
+          console.log('[Tool] Catalog hits:', results.catalog.scoredCourses.length)
+          if (results.schedule.scoredCourses.length > 0) {
+            console.log('[Tool] Schedule matches:', JSON.stringify(results.schedule.scoredCourses))
+          }
+          if (results.catalog.scoredCourses.length > 0) {
+            console.log('[Tool] Catalog matches:', JSON.stringify(results.catalog.scoredCourses))
           }
         }
         return {
           success: true,
-          courses,
-          scoredCourses,
-          count: courses.length,
+          schedule: results.schedule,
+          catalog: results.catalog,
+          formattedPrompt,
+          totalCount: results.schedule.courses.length + results.catalog.courses.length,
         }
       },
     }),

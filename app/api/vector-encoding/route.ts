@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { formatCoursesForPrompt } from './format-courses'
-import { findRelevantCourses } from './course-search'
+import { formatUnifiedResultsForPrompt } from './format-courses'
+import { searchCourses } from './unified-search'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,22 +14,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { courses, scoredCourses } = await findRelevantCourses(query, limit)
-    const formattedPrompt = formatCoursesForPrompt(courses)
+    const results = await searchCourses(query, limit)
+    const formattedPrompt = formatUnifiedResultsForPrompt(results)
 
     return NextResponse.json({
       success: true,
-      courses,
-      scoredCourses,
+      schedule: results.schedule,
+      catalog: results.catalog,
       formattedPrompt,
-      count: courses.length
+      count: results.schedule.courses.length + results.catalog.courses.length,
     })
   } catch (error) {
     console.error('Error searching courses:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to search courses',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
@@ -49,22 +49,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { courses, scoredCourses } = await findRelevantCourses(query, limit)
-    const formattedPrompt = formatCoursesForPrompt(courses)
+    const results = await searchCourses(query, limit)
+    const formattedPrompt = formatUnifiedResultsForPrompt(results)
 
     return NextResponse.json({
       success: true,
-      courses,
-      scoredCourses,
+      schedule: results.schedule,
+      catalog: results.catalog,
       formattedPrompt,
-      count: courses.length
+      count: results.schedule.courses.length + results.catalog.courses.length,
     })
   } catch (error) {
     console.error('Error searching courses:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to search courses',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
