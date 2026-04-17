@@ -223,7 +223,7 @@ export default function MainView({
   }
 
   return (
-    <div className="h-screen bg-background flex flex-col max-w-md mx-auto relative">
+    <div className="min-h-dvh h-dvh bg-background flex flex-col w-full max-w-full sm:max-w-md mx-auto relative">
       {/* Top section: AI assistant, header, calendar — fixed in place */}
       <div className="flex-shrink-0 p-4 pb-0">
         <div className="bg-gradient-to-r from-muted/40 to-muted/20 rounded-3xl p-6 mb-6 border border-border/50 shadow-lg relative">
@@ -422,7 +422,7 @@ export default function MainView({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
           {DAYS.map((day, index) => {
             const date = weekDates[index]
             const isSelected = selectedDay === index
@@ -435,21 +435,30 @@ export default function MainView({
             return (
               <button
                 key={day}
+                type="button"
                 onClick={() => setSelectedDay(index)}
-                className={`p-3 rounded-lg text-center transition-all ${
+                className={`flex w-full min-w-0 flex-col items-center justify-center rounded-lg border-2 p-1.5 text-center transition-colors sm:p-2 ${
                   isSelected
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'border-primary bg-primary text-primary-foreground'
                     : isToday
-                    ? 'bg-primary/10 text-primary border-2 border-primary/20'
-                    : 'hover:bg-muted'
+                      ? 'border-primary/30 bg-primary/10 text-primary'
+                      : 'border-transparent hover:bg-muted'
                 }`}
               >
-                <div className="text-xs font-medium">{day}</div>
-                <div className="text-lg font-bold mt-1">{date.getDate()}</div>
-                <div className="flex justify-center mt-1">
-                  <div
-                    className={`w-2 h-2 rounded-full transition-colors ${
-                      hasActiveTasks ? 'bg-primary' : 'bg-transparent'
+                <div className="text-[10px] font-medium leading-tight sm:text-xs">
+                  {day}
+                </div>
+                <div className="mt-0.5 text-base font-bold tabular-nums leading-none sm:text-lg">
+                  {date.getDate()}
+                </div>
+                <div className="mt-1 flex h-2 w-full items-center justify-center">
+                  <span
+                    className={`block h-2 w-2 shrink-0 rounded-full transition-colors ${
+                      hasActiveTasks
+                        ? isSelected
+                          ? 'bg-primary-foreground'
+                          : 'bg-primary'
+                        : 'bg-transparent'
                     }`}
                   />
                 </div>
@@ -595,23 +604,28 @@ export default function MainView({
         )}
       </div>
 
-      <Button
-        className="absolute bottom-5 right-5 w-[80px] h-[80px] rounded-full bg-primary hover:bg-primary/90 active:bg-green-500 text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 p-0"
-        onClick={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          onAddTask()
-        }}
-      >
-        <Image
-          src="/images/+_sign_icon.png"
-          alt="Add task"
-          width={80}
-          height={80}
-          className="object-contain"
-          style={{ height: '65%', width: '65%' }}
-        />
-      </Button>
+      {/* Viewport-fixed FAB — px sizing so root font-size does not scale the control */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
+        <div className="pointer-events-auto flex w-full max-w-full justify-end pr-4 sm:max-w-md sm:pr-5">
+          <Button
+            size="icon"
+            className="!h-[48px] !w-[48px] !min-h-[48px] !min-w-[48px] rounded-full bg-primary p-0 hover:bg-primary/90 active:bg-green-500 text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 active:scale-95"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onAddTask()
+            }}
+          >
+            <Image
+              src="/images/+_sign_icon.png"
+              alt="Add task"
+              width={28}
+              height={28}
+              className="h-[28px] w-[28px] object-contain"
+            />
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

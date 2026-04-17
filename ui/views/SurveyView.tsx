@@ -97,8 +97,8 @@ const SurveyView = ({
   const currentQuestion = SURVEY_QUESTIONS[currentQuestionIndex]
 
 return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-    <Card className="w-full max-w-md p-8 text-center relative">
+    <div className="min-h-dvh h-dvh bg-background flex items-center justify-center p-4 w-full">
+    <Card className="w-full max-w-full sm:max-w-md p-8 text-center relative">
         {/* Back arrow - only show if not on first question */}
         {currentQuestionIndex > 0 && (
         <Button

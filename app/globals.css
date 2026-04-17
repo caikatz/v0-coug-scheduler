@@ -121,10 +121,20 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply bg-background;
+    min-height: 100dvh;
+    /* Scales rem-based UI down; unlike `zoom`, layout height matches the visual (fixed bottom stays put). */
+    font-size: 87.5%;
+  }
   body {
     @apply bg-background text-foreground;
+    min-height: 100dvh;
   }
 }
+
+/* Do not use CSS zoom on html — it shrinks visuals but not the layout viewport,
+   so bottom-fixed UI (FAB, nav) floats above the real screen bottom. */
 
 @media (max-height: 700px) {
   .fred-avatar-section {
