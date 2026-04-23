@@ -219,6 +219,11 @@ export function detectOverlaps(schedule: ScheduleItems): { hasOverlap: boolean; 
         const item1 = dayItems[i]
         const item2 = dayItems[j]
 
+        // Only compare overlaps for items on the same explicit date.
+        if (item1.dueDate && item2.dueDate && item1.dueDate !== item2.dueDate) {
+          continue
+        }
+
         if (!item1.time || !item2.time) continue
 
         const parseTime = (timeStr: string) => {
@@ -242,7 +247,14 @@ export function detectOverlaps(schedule: ScheduleItems): { hasOverlap: boolean; 
         const item2Start = parseTime(item2Times[0])
         const item2End = parseTime(item2Times[1])
 
-        if (!item1Start || !item1End || !item2Start || !item2End) continue
+        if (
+          item1Start === null ||
+          item1End === null ||
+          item2Start === null ||
+          item2End === null
+        ) {
+          continue
+        }
 
         const hasOverlap = (
           (item1Start < item2End && item1End > item2Start) ||

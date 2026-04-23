@@ -6,7 +6,7 @@ import { ArrowLeft, Send, AlertCircle, ChevronRight } from 'lucide-react'
 import { Button } from '@/ui/components/button'
 import { DAYS, SCHEDULING_AI, WSU_SEMESTER } from '@/lib/constants'
 import { useAIChat } from '@/lib/ai-chat-hook'
-import { getWeekDates } from '@/lib/utils'
+import { getWeekDates, formatDateLocal } from '@/lib/utils'
 import { detectOverlaps } from '@/lib/schedule-utils'
 import {
   transformAIScheduleToItems,
@@ -127,7 +127,10 @@ export default function ChatView({
         const response = await fetch('/api/generate-schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({
+            messages,
+            existingSchedule: scheduleItems,
+          }),
         })
 
         const data = await response.json()
@@ -138,19 +141,83 @@ export default function ChatView({
           // Get current week dates
           const weekDates = getWeekDates(currentDateObj)
 
-          // Transform AI schedule to ScheduleItems format
-          const transformedSchedule = transformAIScheduleToItems(
-            data.schedule,
-            weekDates,
-            nextTaskId
-          )
+          let mergedSchedule: ScheduleItems = scheduleItems
 
-          // Merge with existing schedule (deduplicates automatically)
-          const mergedSchedule = mergeScheduleForWeek(
-            scheduleItems,
-            transformedSchedule,
-            weekDates
-          )
+          if (data.schedule.update_type === 'none') {
+            console.log('✅ No live schedule changes detected')
+          } else if (data.schedule.update_type === 'partial') {
+            mergedSchedule = applyScheduleChanges(
+              scheduleItems,
+              data.schedule.changes || [],
+              weekDates,
+              nextTaskId,
+              WSU_SEMESTER.current.end
+            )
+          } else if (data.schedule.update_type === 'full') {
+            const transformedSchedule = transformAIScheduleToItems(
+              data.schedule,
+              weekDates,
+              nextTaskId
+            )
+
+            if (onboardingCompleted) {
+              // In follow-up chat, avoid wiping existing classes if model returns a sparse "full" update.
+              const combined: ScheduleItems = {
+                Mon: [...(scheduleItems.Mon || [])],
+                Tue: [...(scheduleItems.Tue || [])],
+                Wed: [...(scheduleItems.Wed || [])],
+                Thu: [...(scheduleItems.Thu || [])],
+                Fri: [...(scheduleItems.Fri || [])],
+                Sat: [...(scheduleItems.Sat || [])],
+                Sun: [...(scheduleItems.Sun || [])],
+              }
+
+              const dayKeys: Array<keyof ScheduleItems> = [
+                'Mon',
+                'Tue',
+                'Wed',
+                'Thu',
+                'Fri',
+                'Sat',
+                'Sun',
+              ]
+
+              dayKeys.forEach((day) => {
+                const existingKeys = new Set(
+                  (combined[day] || []).map(
+                    (item) =>
+                      `${item.dueDate || ''}|${item.title.toLowerCase()}|${item.time || ''}`
+                  )
+                )
+
+                for (const item of transformedSchedule[day] || []) {
+                  const key = `${item.dueDate || ''}|${item.title.toLowerCase()}|${item.time || ''}`
+                  if (!existingKeys.has(key)) {
+                    combined[day].push(item)
+                    existingKeys.add(key)
+                  }
+                }
+
+                combined[day].sort((a, b) => {
+                  const aRange = parseScheduleItemTimeRange(a.time)
+                  const bRange = parseScheduleItemTimeRange(b.time)
+                  if (!aRange && !bRange) return 0
+                  if (!aRange) return 1
+                  if (!bRange) return -1
+                  return aRange.start - bRange.start
+                })
+              })
+
+              mergedSchedule = combined
+            } else {
+              // During initial build, a full update can safely replace current-week tasks.
+              mergedSchedule = mergeScheduleForWeek(
+                scheduleItems,
+                transformedSchedule,
+                weekDates
+              )
+            }
+          }
 
           // Check for overlaps before updating
           const { hasOverlap, conflicts } = detectOverlaps(mergedSchedule)
@@ -431,7 +498,15 @@ export default function ChatView({
 
     let nextId = startingTaskId
 
-    targetDates.forEach((date) => {
+    const getWeekStart = (date: Date): Date => {
+      const start = new Date(date)
+      const mondayOffset = (start.getDay() + 6) % 7
+      start.setDate(start.getDate() - mondayOffset)
+      start.setHours(0, 0, 0, 0)
+      return start
+    }
+
+    const getLargestGap = (date: Date): { start: number; end: number; size: number } | null => {
       const dayIndex = (date.getDay() + 6) % 7
       const dayKey = DAYS[dayIndex]
       const dueDate = formatDateLocal(date)
@@ -479,28 +554,68 @@ export default function ChatView({
 
       const gapSize = largestGapEnd - largestGapStart
       if (gapSize < minimumBlockMinutes) {
-        return
+        return null
       }
 
-      const suggestedLength = Math.min(90, gapSize)
-      const suggestionStart = largestGapStart
-      const suggestionEnd = suggestionStart + suggestedLength
+      return { start: largestGapStart, end: largestGapEnd, size: gapSize }
+    }
 
-      const suggestedTask: ScheduleItem & { source: 'suggested' } = {
-        id: nextId,
-        title: 'Suggested Study Session',
-        priority: 'medium',
-        completed: false,
-        source: 'suggested',
-        dueDate,
-        time: `${formatMinutesTo12Hour(suggestionStart)} - ${formatMinutesTo12Hour(suggestionEnd)}`,
-      }
+    const weekMap = new Map<string, Date[]>()
+    targetDates.forEach((date) => {
+      const key = formatDateLocal(getWeekStart(date))
+      const weekDates = weekMap.get(key) || []
+      weekDates.push(date)
+      weekMap.set(key, weekDates)
+    })
 
-      cleaned[dayKey] = [...(cleaned[dayKey] || []), suggestedTask]
-      nextId += 1
+    weekMap.forEach((weekDates) => {
+      const weekdayCandidates = weekDates
+        .filter((date) => {
+          const dayIndex = (date.getDay() + 6) % 7
+          return dayIndex >= 0 && dayIndex <= 4
+        })
+        .map((date) => {
+          const gap = getLargestGap(date)
+          return gap ? { date, gap } : null
+        })
+        .filter(
+          (candidate): candidate is { date: Date; gap: { start: number; end: number; size: number } } =>
+            candidate !== null
+        )
+        .sort((a, b) => b.gap.size - a.gap.size)
+        .slice(0, 2)
+
+      weekdayCandidates.forEach(({ date, gap }) => {
+        const dayIndex = (date.getDay() + 6) % 7
+        const dayKey = DAYS[dayIndex]
+        const dueDate = formatDateLocal(date)
+        const suggestedLength = Math.min(90, gap.size)
+        const suggestionStart = gap.start
+        const suggestionEnd = suggestionStart + suggestedLength
+
+        const suggestedTask: ScheduleItem & { source: 'suggested' } = {
+          id: nextId,
+          title: 'Suggested Study Session',
+          priority: 'medium',
+          completed: false,
+          source: 'suggested',
+          dueDate,
+          time: `${formatMinutesTo12Hour(suggestionStart)} - ${formatMinutesTo12Hour(suggestionEnd)}`,
+        }
+
+        cleaned[dayKey] = [...(cleaned[dayKey] || []), suggestedTask]
+        nextId += 1
+      })
     })
 
     return { updated: cleaned, nextId }
+  }
+
+  function formatLiveCalendarTitle(title: string): string {
+    const trimmed = title.trim()
+    if (!trimmed) return title
+    if (trimmed !== trimmed.toLowerCase()) return title
+    return trimmed.replace(/\b\w/g, (char) => char.toUpperCase())
   }
 
   return (
@@ -573,7 +688,28 @@ export default function ChatView({
         <div className="px-3 pb-3 overflow-y-auto flex-1" style={expandedCalendar ? {} : { maxHeight: 'calc(30vh - 2.5rem)' }}>
           <div className="grid grid-cols-7 gap-1 text-xs">
             {DAYS.map((day, index) => {
-              const daySchedule = scheduleItems[day] || []
+              const weekDates = getWeekDates(currentDateObj)
+              const dateString = formatDateLocal(weekDates[index])
+              const daySchedule = (scheduleItems[day] || [])
+                .filter((item) => {
+                  // Keep legacy tasks without dueDate visible.
+                  if (!item.dueDate) return true
+                  return item.dueDate === dateString
+                })
+                .sort((a, b) => {
+                  const aRange = parseScheduleItemTimeRange(a.time)
+                  const bRange = parseScheduleItemTimeRange(b.time)
+
+                  // Untimed items appear after timed entries.
+                  if (!aRange && !bRange) return 0
+                  if (!aRange) return 1
+                  if (!bRange) return -1
+
+                  if (aRange.start !== bRange.start) {
+                    return aRange.start - bRange.start
+                  }
+                  return aRange.end - bRange.end
+                })
               const todayDate = new Date()
               const currentDayOfWeek = (todayDate.getDay() + 6) % 7 // Convert Sunday=0 to Monday=0
               const isToday = index === currentDayOfWeek
@@ -595,7 +731,7 @@ export default function ChatView({
                           title={`${item.title}\n${item.time || 'No time set'}`}
                         >
                           <div className="font-medium text-[10px] leading-tight break-words">
-                            {item.title}
+                            {formatLiveCalendarTitle(item.title)}
                           </div>
                           {item.time && (
                             <div className="text-muted-foreground text-[9px] leading-tight mt-0.5">
@@ -613,7 +749,7 @@ export default function ChatView({
                           title={`${item.title}\n${item.time || 'No time set'}`}
                         >
                           <div className="font-medium truncate text-[10px] leading-tight">
-                            {item.title}
+                            {formatLiveCalendarTitle(item.title)}
                           </div>
                           {item.time && (
                             <div className="text-muted-foreground text-[9px] truncate leading-tight mt-0.5">
