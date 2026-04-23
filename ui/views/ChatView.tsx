@@ -162,27 +162,10 @@ export default function ChatView({
 
             if (onboardingCompleted) {
               // In follow-up chat, avoid wiping existing classes if model returns a sparse "full" update.
-              const combined: ScheduleItems = {
-                Mon: [...(scheduleItems.Mon || [])],
-                Tue: [...(scheduleItems.Tue || [])],
-                Wed: [...(scheduleItems.Wed || [])],
-                Thu: [...(scheduleItems.Thu || [])],
-                Fri: [...(scheduleItems.Fri || [])],
-                Sat: [...(scheduleItems.Sat || [])],
-                Sun: [...(scheduleItems.Sun || [])],
-              }
+              const combined: ScheduleItems = { ...scheduleItems }
 
-              const dayKeys: Array<keyof ScheduleItems> = [
-                'Mon',
-                'Tue',
-                'Wed',
-                'Thu',
-                'Fri',
-                'Sat',
-                'Sun',
-              ]
-
-              dayKeys.forEach((day) => {
+              Object.keys(transformedSchedule).forEach((day) => {
+                if (!combined[day]) combined[day] = []
                 const existingKeys = new Set(
                   (combined[day] || []).map(
                     (item) =>
@@ -487,8 +470,8 @@ export default function ChatView({
     const targetDateStrings = new Set(targetDates.map((d) => formatDateLocal(d)))
 
     const cleaned: ScheduleItems = { ...items }
-    DAYS.forEach((day) => {
-      cleaned[day] = (cleaned[day] || []).filter((item) => {
+    Object.keys(cleaned).forEach((dateKey) => {
+      cleaned[dateKey] = (cleaned[dateKey] || []).filter((item) => {
         const typedItem = item as ScheduleItem & { source?: 'ical' | 'suggested' }
         const isSuggested = typedItem.source === 'suggested'
         const isTargetDate = !!item.dueDate && targetDateStrings.has(item.dueDate)
@@ -507,10 +490,8 @@ export default function ChatView({
     }
 
     const getLargestGap = (date: Date): { start: number; end: number; size: number } | null => {
-      const dayIndex = (date.getDay() + 6) % 7
-      const dayKey = DAYS[dayIndex]
       const dueDate = formatDateLocal(date)
-      const dayItems = (cleaned[dayKey] || []).filter((item) => {
+      const dayItems = (cleaned[dueDate] || []).filter((item) => {
         if (!item.dueDate) return true
         return item.dueDate === dueDate
       })
@@ -586,8 +567,6 @@ export default function ChatView({
         .slice(0, 2)
 
       weekdayCandidates.forEach(({ date, gap }) => {
-        const dayIndex = (date.getDay() + 6) % 7
-        const dayKey = DAYS[dayIndex]
         const dueDate = formatDateLocal(date)
         const suggestedLength = Math.min(90, gap.size)
         const suggestionStart = gap.start
@@ -603,7 +582,7 @@ export default function ChatView({
           time: `${formatMinutesTo12Hour(suggestionStart)} - ${formatMinutesTo12Hour(suggestionEnd)}`,
         }
 
-        cleaned[dayKey] = [...(cleaned[dayKey] || []), suggestedTask]
+        cleaned[dueDate] = [...(cleaned[dueDate] || []), suggestedTask]
         nextId += 1
       })
     })
@@ -690,7 +669,7 @@ export default function ChatView({
             {DAYS.map((day, index) => {
               const weekDates = getWeekDates(currentDateObj)
               const dateString = formatDateLocal(weekDates[index])
-              const daySchedule = (scheduleItems[day] || [])
+              const daySchedule = (scheduleItems[dateString] || [])
                 .filter((item) => {
                   // Keep legacy tasks without dueDate visible.
                   if (!item.dueDate) return true
