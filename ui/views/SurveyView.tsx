@@ -112,13 +112,13 @@ return (
         )}
 
         <div className="mb-6">
-        <div className="w-16 h-16 bg-red-700 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden">
+        <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4 overflow-hidden">
             <Image
             src="/images/butch-cougar.png"
             alt="Butch the Cougar"
-            width={48}
-            height={48}
-            className="object-contain"
+          width={64}
+          height={64}
+          className="w-full h-full object-cover object-center"
             />
         </div>
         <h1 className="text-xl font-bold text-foreground mb-2">

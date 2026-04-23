@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
-import { ArrowLeft, Send, AlertCircle, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Send, AlertCircle, ChevronRight, User } from 'lucide-react'
 import { Button } from '@/ui/components/button'
 import { DAYS, SCHEDULING_AI, WSU_SEMESTER } from '@/lib/constants'
 import { useAIChat } from '@/lib/ai-chat-hook'
@@ -626,13 +626,13 @@ export default function ChatView({
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-red-700 flex items-center justify-center overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden">
             <Image
               src="/images/butch-cougar.png"
               alt="Butch the Cougar"
-              width={32}
-              height={32}
-              className="object-contain"
+              width={40}
+              height={40}
+              className="w-full h-full object-cover object-center"
             />
           </div>
           <div>
@@ -647,7 +647,7 @@ export default function ChatView({
       </div>
 
       {/* Chat Calendar - Live schedule preview - Expandable */}
-      <div className={`border-b border-border/50 bg-muted/20 flex flex-col ${expandedCalendar ? 'flex-1' : 'flex-shrink-0'}`} style={expandedCalendar ? { height: 'auto' } : { maxHeight: '30vh' }}>
+      <div className="border-b border-border/50 bg-muted/20 flex flex-col flex-shrink-0" style={expandedCalendar ? { maxHeight: '50vh' } : { maxHeight: '30vh' }}>
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">This Week&apos;s Schedule</h3>
@@ -751,7 +751,7 @@ export default function ChatView({
         </div>
       </div>
 
-      <div className={`${expandedCalendar ? 'hidden' : 'flex-1'} overflow-y-auto p-4 space-y-4 min-h-0`}>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -763,13 +763,13 @@ export default function ChatView({
           >
             <div className="flex items-start gap-3 max-w-[80%]">
               {(message.role as string) === 'assistant' && (
-                <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
                   <Image
                     src="/images/butch-cougar.png"
                     alt="Fred the Cougar"
-                    width={24}
-                    height={24}
-                    className="object-contain"
+                    width={32}
+                    height={32}
+                    className="w-full h-full object-cover object-center"
                   />
                 </div>
               )}
@@ -791,8 +791,8 @@ export default function ChatView({
                 </div>
               </div>
               {(message.role as string) === 'user' && (
-                <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
-                  <span className="text-sm font-medium">You</span>
+                <div className="w-8 h-8 rounded-full bg-zinc-800 text-zinc-100 border border-zinc-700 flex items-center justify-center flex-shrink-0">
+                  <User className="h-4 w-4" />
                 </div>
               )}
             </div>
@@ -828,13 +828,13 @@ export default function ChatView({
         {isLoading && (
           <div className="flex justify-start">
             <div className="flex items-start gap-3 max-w-[80%]">
-              <div className="w-8 h-8 rounded-full bg-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
                 <Image
                   src="/images/butch-cougar.png"
                   alt="Butch the Cougar"
-                  width={24}
-                  height={24}
-                  className="object-contain"
+                  width={32}
+                  height={32}
+                  className="w-full h-full object-cover object-center"
                 />
               </div>
               <div className="rounded-2xl px-4 py-3 bg-muted text-foreground">
