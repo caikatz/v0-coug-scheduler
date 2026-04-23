@@ -41,52 +41,43 @@ export function normalizeTitle(title: string): string {
   return expandedWords.join(' ')
 }
 
+const DAY_MAP: Record<string, number> = {
+  Monday: 0,
+  Tuesday: 1,
+  Wednesday: 2,
+  Thursday: 3,
+  Friday: 4,
+  Saturday: 5,
+  Sunday: 6,
+}
+
 export function transformAIScheduleToItems(
   aiSchedule: AIGeneratedSchedule,
   weekDates: Date[],
   startingTaskId: number,
   semesterEndDate: string = WSU_SEMESTER.current.end
 ): ScheduleItems {
-  const scheduleItems: ScheduleItems = {
-    Mon: [],
-    Tue: [],
-    Wed: [],
-    Thu: [],
-    Fri: [],
-    Sat: [],
-    Sun: [],
-  }
-
-  const dayMap: Record<string, number> = {
-    Monday: 0,
-    Tuesday: 1,
-    Wednesday: 2,
-    Thursday: 3,
-    Friday: 4,
-    Saturday: 5,
-    Sunday: 6,
-  }
+  const scheduleItems: ScheduleItems = {}
 
   let currentTaskId = startingTaskId
   const allWeeks = getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
   allWeeks.pop()
 
   for (const daySchedule of aiSchedule.weekly_schedule || []) {
-    const dayIndex = dayMap[daySchedule.day]
+    const dayIndex = DAY_MAP[daySchedule.day]
     if (dayIndex === undefined) continue
-
-    const dayKey = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dayIndex]
 
     for (const block of daySchedule.blocks) {
       const weeksToPopulate = block.is_recurring ? allWeeks : [weekDates]
 
       for (const week of weeksToPopulate) {
         const dateForDay = week[dayIndex]
-        const dueDateString = formatDateLocal(dateForDay)
+        const dateKey = formatDateLocal(dateForDay)
 
-        const scheduleItem = convertBlockToItem(block, currentTaskId, dueDateString)
+        const scheduleItem = convertBlockToItem(block, currentTaskId, dateKey)
         if (scheduleItem) {
-          scheduleItems[dayKey].push(scheduleItem)
+          if (!scheduleItems[dateKey]) scheduleItems[dateKey] = []
+          scheduleItems[dateKey].push(scheduleItem)
           currentTaskId++
         }
       }
@@ -102,7 +93,7 @@ function getAllWeeksUntilSemesterEnd(
 ): Date[][] {
   const weeks: Date[][] = []
   const endDate = new Date(semesterEndDate)
-  let weekStart = new Date(currentWeekDates[0])
+  const weekStart = new Date(currentWeekDates[0])
 
   while (weekStart <= endDate) {
     const week: Date[] = []
@@ -174,10 +165,10 @@ function buildTitle(block: AIScheduleBlock): string {
   return title
 }
 
-function createDedupeKey(item: ScheduleItem, day: string): string {
+function createDedupeKey(item: ScheduleItem, dateKey: string): string {
   const normalizedTitle = normalizeTitle(item.title)
   const time = item.time || 'no-time'
-  return `${normalizedTitle}|${day}|${time}`
+  return `${normalizedTitle}|${dateKey}|${time}`
 }
 
 export function mergeScheduleForWeek(
@@ -185,49 +176,34 @@ export function mergeScheduleForWeek(
   newSchedule: ScheduleItems,
   weekDates: Date[]
 ): ScheduleItems {
-  const weekDateStrings = weekDates.map((date) => formatDateLocal(date))
+  const weekDateStrings = new Set(weekDates.map((date) => formatDateLocal(date)))
 
-  const clearedSchedule: ScheduleItems = {
-    Mon: [],
-    Tue: [],
-    Wed: [],
-    Thu: [],
-    Fri: [],
-    Sat: [],
-    Sun: [],
+  const result: ScheduleItems = {}
+
+  // Copy items from existing schedule that are NOT in this week
+  for (const [dateKey, items] of Object.entries(existingSchedule)) {
+    if (!weekDateStrings.has(dateKey)) {
+      result[dateKey] = [...items]
+    }
   }
 
-  const days: Array<keyof ScheduleItems> = [
-    'Mon',
-    'Tue',
-    'Wed',
-    'Thu',
-    'Fri',
-    'Sat',
-    'Sun',
-  ]
-
-  for (const day of days) {
-    const otherWeekTasks = (existingSchedule[day] || []).filter((task) => {
-      if (!task.dueDate) return true
-      return !weekDateStrings.includes(task.dueDate)
-    })
-
+  // Deduplicate and add new items for this week
+  for (const dateKey of weekDateStrings) {
     const newItemKeys = new Set<string>()
     const deduplicatedNewItems: ScheduleItem[] = []
 
-    for (const newItem of newSchedule[day] || []) {
-      const key = createDedupeKey(newItem, day)
+    for (const newItem of newSchedule[dateKey] || []) {
+      const key = createDedupeKey(newItem, dateKey)
       if (!newItemKeys.has(key)) {
         newItemKeys.add(key)
         deduplicatedNewItems.push(newItem)
       }
     }
 
-    clearedSchedule[day] = [...otherWeekTasks, ...deduplicatedNewItems]
+    result[dateKey] = deduplicatedNewItems
   }
 
-  return clearedSchedule
+  return result
 }
 
 export function applyScheduleChanges(
@@ -237,41 +213,28 @@ export function applyScheduleChanges(
   startingTaskId: number,
   semesterEndDate: string = WSU_SEMESTER.current.end
 ): ScheduleItems {
-  const updatedSchedule: ScheduleItems = {
-    Mon: [...(existingSchedule.Mon || [])],
-    Tue: [...(existingSchedule.Tue || [])],
-    Wed: [...(existingSchedule.Wed || [])],
-    Thu: [...(existingSchedule.Thu || [])],
-    Fri: [...(existingSchedule.Fri || [])],
-    Sat: [...(existingSchedule.Sat || [])],
-    Sun: [...(existingSchedule.Sun || [])],
-  }
-
-  const dayMap: Record<string, keyof ScheduleItems> = {
-    Monday: 'Mon',
-    Tuesday: 'Tue',
-    Wednesday: 'Wed',
-    Thursday: 'Thu',
-    Friday: 'Fri',
-    Saturday: 'Sat',
-    Sunday: 'Sun',
+  const updatedSchedule: ScheduleItems = {}
+  for (const [key, items] of Object.entries(existingSchedule)) {
+    updatedSchedule[key] = [...items]
   }
 
   let currentTaskId = startingTaskId
 
   for (const change of changes) {
-    const dayKey = dayMap[change.day]
-    if (!dayKey) continue
+    const dayIndex = DAY_MAP[change.day]
+    if (dayIndex === undefined) continue
 
     switch (change.operation) {
       case 'remove':
         if (change.match_title) {
-          updatedSchedule[dayKey] = updatedSchedule[dayKey].filter(
-            (item) =>
-              !item.title
-                .toLowerCase()
-                .includes(change.match_title!.toLowerCase())
-          )
+          for (const key of Object.keys(updatedSchedule)) {
+            updatedSchedule[key] = updatedSchedule[key].filter(
+              (item) =>
+                !item.title
+                  .toLowerCase()
+                  .includes(change.match_title!.toLowerCase())
+            )
+          }
         }
         break
 
@@ -281,20 +244,19 @@ export function applyScheduleChanges(
             ? getAllWeeksUntilSemesterEnd(weekDates, semesterEndDate)
             : [weekDates]
 
-          const dayIndex = Object.keys(dayMap).indexOf(change.day)
-
           for (const week of allWeeks) {
             const dateForDay = week[dayIndex]
-            const dueDateString = formatDateLocal(dateForDay)
+            const dateKey = formatDateLocal(dateForDay)
 
             const newItem = convertBlockToItem(
               change.item,
               currentTaskId,
-              dueDateString
+              dateKey
             )
 
             if (newItem) {
-              updatedSchedule[dayKey].push(newItem)
+              if (!updatedSchedule[dateKey]) updatedSchedule[dateKey] = []
+              updatedSchedule[dateKey].push(newItem)
               currentTaskId++
             }
           }
@@ -303,41 +265,34 @@ export function applyScheduleChanges(
 
       case 'modify':
         if (change.match_title && change.item) {
-          updatedSchedule[dayKey] = updatedSchedule[dayKey].map((item) => {
-            if (
-              item.title
-                .toLowerCase()
-                .includes(change.match_title!.toLowerCase())
-            ) {
-              const startTime12 = formatTime24To12(change.item!.start_time)
-              const endTime12 = formatTime24To12(change.item!.end_time)
+          for (const key of Object.keys(updatedSchedule)) {
+            updatedSchedule[key] = updatedSchedule[key].map((item) => {
+              if (
+                item.title
+                  .toLowerCase()
+                  .includes(change.match_title!.toLowerCase())
+              ) {
+                const startTime12 = formatTime24To12(change.item!.start_time)
+                const endTime12 = formatTime24To12(change.item!.end_time)
 
-              return {
-                ...item,
-                title: buildTitle(change.item!),
-                time: `${startTime12} - ${endTime12}`,
-                priority: getPriorityForBlockType(change.item!.type),
+                return {
+                  ...item,
+                  title: buildTitle(change.item!),
+                  time: `${startTime12} - ${endTime12}`,
+                  priority: getPriorityForBlockType(change.item!.type),
+                }
               }
-            }
-            return item
-          })
+              return item
+            })
+          }
         }
         break
     }
   }
 
-  const dayKeys: Array<keyof ScheduleItems> = [
-    'Mon',
-    'Tue',
-    'Wed',
-    'Thu',
-    'Fri',
-    'Sat',
-    'Sun',
-  ]
-
-  for (const day of dayKeys) {
-    updatedSchedule[day].sort((a, b) => {
+  // Sort each date's items by time
+  for (const key of Object.keys(updatedSchedule)) {
+    updatedSchedule[key].sort((a, b) => {
       if (!a.time) return 1
       if (!b.time) return -1
       return a.time.localeCompare(b.time)

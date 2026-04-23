@@ -1,10 +1,6 @@
-// app/api/search-courses/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { formatCoursesForPrompt } from './format-courses'
-import { findRelevantCourses } from './course-search'
-
-// Note: Edge runtime removed - course-embeddings.json is ~58MB, exceeding Edge's ~1-4MB bundle limit.
-// Using Node.js runtime (default) which supports larger bundles.
+import { formatUnifiedResultsForPrompt } from './format-courses'
+import { searchCourses } from './unified-search'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,31 +14,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find relevant courses using semantic search
-    const courses = await findRelevantCourses(query, limit)
-
-    // Format for AI prompt (optional)
-    const formattedPrompt = formatCoursesForPrompt(courses)
+    const results = await searchCourses(query, limit)
+    const formattedPrompt = formatUnifiedResultsForPrompt(results)
 
     return NextResponse.json({
       success: true,
-      courses,
+      schedule: results.schedule,
+      catalog: results.catalog,
       formattedPrompt,
-      count: courses.length
+      count: results.schedule.courses.length + results.catalog.courses.length,
     })
   } catch (error) {
     console.error('Error searching courses:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to search courses',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
   }
 }
 
-// Optional: Support GET requests with query params
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
@@ -56,21 +49,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const courses = await findRelevantCourses(query, limit)
-    const formattedPrompt = formatCoursesForPrompt(courses)
+    const results = await searchCourses(query, limit)
+    const formattedPrompt = formatUnifiedResultsForPrompt(results)
 
     return NextResponse.json({
       success: true,
-      courses,
+      schedule: results.schedule,
+      catalog: results.catalog,
       formattedPrompt,
-      count: courses.length
+      count: results.schedule.courses.length + results.catalog.courses.length,
     })
   } catch (error) {
     console.error('Error searching courses:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to search courses',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )

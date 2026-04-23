@@ -15,16 +15,7 @@ export interface ICalEvent {
   location?: string
 }
 
-const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-const GET_DAY_KEY: Record<number, (typeof DAY_KEYS)[number]> = {
-  0: 'Sun',
-  1: 'Mon',
-  2: 'Tue',
-  3: 'Wed',
-  4: 'Thu',
-  5: 'Fri',
-  6: 'Sat',
-}
+import { formatDateLocal } from './utils'
 
 /**
  * Parse ICS content and extract events.
@@ -166,7 +157,7 @@ function parseICSTimestamp(value: string): Date {
 
 /**
  * Convert parsed ICS events to ScheduleItems and merge with existing schedule.
- * Events are keyed by day (Mon-Sun) and dueDate for date-specific display.
+ * Events are keyed by date string (YYYY-MM-DD).
  * ICS-sourced items get source: 'ical', icalUid, and icalUrl (for per-feed removal).
  */
 export function icalEventsToScheduleItems(
@@ -177,24 +168,19 @@ export function icalEventsToScheduleItems(
   sourceUrl?: string
 ): { scheduleItems: Record<string, ScheduleItem[]>; nextId: number } {
   const endDate = new Date(semesterEndDate)
-  const scheduleItems: Record<string, ScheduleItem[]> = {
-    Mon: [...(existingSchedule.Mon || [])],
-    Tue: [...(existingSchedule.Tue || [])],
-    Wed: [...(existingSchedule.Wed || [])],
-    Thu: [...(existingSchedule.Thu || [])],
-    Fri: [...(existingSchedule.Fri || [])],
-    Sat: [...(existingSchedule.Sat || [])],
-    Sun: [...(existingSchedule.Sun || [])],
+  const scheduleItems: Record<string, ScheduleItem[]> = {}
+
+  for (const [key, items] of Object.entries(existingSchedule)) {
+    scheduleItems[key] = [...items]
   }
 
-  // Remove existing ICS-sourced items from this feed (or all ical if no sourceUrl for backward compat)
   const icalSource = 'ical' as const
-  for (const day of DAY_KEYS) {
-    scheduleItems[day] = scheduleItems[day].filter((item) => {
+  for (const key of Object.keys(scheduleItems)) {
+    scheduleItems[key] = scheduleItems[key].filter((item) => {
       const extended = item as ScheduleItem & { source?: string; icalUrl?: string }
       if (extended.source !== icalSource) return true
       if (sourceUrl) return extended.icalUrl !== sourceUrl
-      return false // remove all ical when no sourceUrl (legacy)
+      return false
     })
   }
 
@@ -203,9 +189,7 @@ export function icalEventsToScheduleItems(
   for (const evt of events) {
     if (evt.start > endDate) continue
 
-    const dayOfWeek = evt.start.getDay()
-    const dayKey = GET_DAY_KEY[dayOfWeek] ?? 'Mon'
-    const dueDate = evt.start.toISOString().split('T')[0]
+    const dateKey = formatDateLocal(evt.start)
 
     const toTime24 = (d: Date) =>
       `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
@@ -223,7 +207,7 @@ export function icalEventsToScheduleItems(
       id: currentId,
       title,
       time: timeStr,
-      dueDate,
+      dueDate: dateKey,
       priority: 'medium',
       completed: false,
       source: 'ical',
@@ -231,7 +215,8 @@ export function icalEventsToScheduleItems(
       ...(sourceUrl && { icalUrl: sourceUrl }),
     }
 
-    scheduleItems[dayKey].push(item)
+    if (!scheduleItems[dateKey]) scheduleItems[dateKey] = []
+    scheduleItems[dateKey].push(item)
     currentId++
   }
 

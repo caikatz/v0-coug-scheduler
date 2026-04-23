@@ -3,6 +3,9 @@ import { generateObject } from 'ai'
 import { AIGeneratedScheduleSchema, ScheduleItems } from '@/lib/schemas'
 import { PostHog } from 'posthog-node'
 import { withTracing } from '@posthog/ai'
+import { GEMINI_MODELS, ACTIVE_GEMINI_MODEL } from '@/lib/constants'
+
+const modelId = GEMINI_MODELS[ACTIVE_GEMINI_MODEL]
 
 export const maxDuration = 30
 
@@ -117,10 +120,10 @@ ${conversationContext}
 Generate a weekly schedule that includes ONLY what was explicitly discussed. Be precise and conservative - it's better to include too little than to add content that wasn't mentioned.`
 
     console.time('ai-api-call')
-    console.log('🤖 Starting AI generation with Gemini 2.5 Flash...')
+    console.log(`🤖 Starting AI generation with ${modelId}...`)
 
     const { object } = await generateObject({
-      model: withTracing(google('gemini-2.5-flash'), phClient, {
+      model: withTracing(google(modelId), phClient, {
         posthogProperties: {
           operation: 'schedule-generation',
           conversationLength: messages.length,

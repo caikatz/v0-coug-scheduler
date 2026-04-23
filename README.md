@@ -1,87 +1,109 @@
-# WSU Butch Bot Scheduler - Deployment Instructions
+# WSU Coug Scheduler
 
-## Last Known Working Links
+An AI-powered scheduling assistant for Washington State University students. Students complete an onboarding survey, chat with "Fred the Lion" (an AI academic success coach), and collaboratively build a weekly schedule. Fred uses motivational interviewing to help students understand their time constraints and make realistic plans.
 
-- **Live URL**: https://v0-coug-scheduler-one.vercel.app
-- **GitHub URL**: https://github.com/swanzeyb/v0-coug-scheduler
+## Features
 
-## 1. Fork Repository
+- **Onboarding survey** — Captures sleep habits, productive hours, and study preferences
+- **AI chat with tool calling** — Fred can search the WSU course catalog, create/remove calendar items, and check for conflicts, all through structured tool calls to Google Gemini
+- **Semantic course search** — Vector embeddings (768-dim, cosine similarity) over the WSU course catalog so Fred can look up real course details
+- **iCal/ICS sync** — Import events from Google Calendar, Outlook, or Apple Calendar via ICS feed URLs
+- **Date-keyed calendar** — Schedule items stored by full date (YYYY-MM-DD), with sorting by start time
+- **Persistent chat history** — Single unified conversation across all sessions, stored in localStorage
+- **Configurable Gemini model** — Switch between Gemini 2.5 Flash, 3 Flash Preview, and 3.1 Flash Lite Preview via a single constant
 
-1. Go to the repository on GitHub
-2. Click "Fork" button in top-right
-3. Select your account as destination
+## Tech Stack
 
-## 2. Deploy to Vercel via GitHub
+| Layer | Technology |
+| ----- | ---------- |
+| Framework | Next.js (App Router) |
+| UI | React, Radix UI (shadcn/ui), Tailwind CSS |
+| AI | Vercel AI SDK, Google Gemini (configurable model) |
+| Embeddings | `@google/genai` with `gemini-embedding-001` |
+| State | localStorage via custom hooks (no database) |
+| Analytics | PostHog, Vercel Analytics |
+| Validation | Zod |
+| Package Manager | pnpm |
 
-1. Go to [vercel.com](https://vercel.com)
-2. Sign up/login with GitHub account
-3. Click "New Project"
-4. Import your forked repository
-5. Configure build settings:
-   - Framework Preset: Next.js
-   - Build Command: `pnpm build`
-   - Install Command: `pnpm install`
-6. Click "Deploy"
+## Project Structure
 
-## 3. Setup n8n Instance
+```
+app/
+  api/
+    chat/route.ts                  # Streaming AI chat with tool calling
+    generate-schedule/route.ts     # Structured schedule generation (generateObject)
+    fetch-ics/route.ts             # Server-side ICS calendar fetching (CORS bypass)
+    vector-encoding/
+      route.ts                     # Semantic course search API
+      course-search.ts             # Cosine similarity search over embeddings
+      embed.ts                     # Text embedding via gemini-embedding-001
+      format-courses.ts            # Course data → AI prompt formatting
+      data/courses.json            # WSU course catalog
+      data/course-embeddings.json  # Precomputed 768-dim embeddings
+      Scripts/
+        generate-embeddings.ts     # Script to regenerate course embeddings
+        Scrape-WSU-Courses.ps1     # PowerShell scraper for WSU catalog
+  globals.css                      # Global styles + responsive media queries
+  layout.tsx                       # Root layout, theme, PostHog init
+  page.tsx                         # Single-page app — all views composed here
+  providers.tsx                    # App-wide providers (PostHog)
 
-### Option A: n8n Cloud (Easiest, $24/month)
+ui/
+  views/
+    ChatView.tsx                   # Chat interface with tool sync + auto-retry
+    MainView.tsx                   # Calendar, week picker, task list, Fred button
+    SurveyView.tsx                 # Onboarding survey
+    TaskEditorView.tsx             # Add/edit/delete tasks
+  components/                      # shadcn/ui primitives (button, card, dialog, slider)
+  theme-provider.tsx               # Dark/light mode
 
-1. Go to [n8n.cloud](https://n8n.cloud)
-2. Sign up for account
-3. Choose Starter plan ($24/month)
-4. Access your n8n instance URL (e.g., `https://yourname.app.n8n.cloud`)
+lib/
+  ai-chat-hook.ts                  # useAIChat — wraps useChat with persistence
+  constants.ts                     # Gemini models, days, months, semester dates, survey questions
+  ical-parser.ts                   # ICS feed parsing and schedule integration
+  persistence-hooks.ts             # Client state hooks (survey, schedule, chat, navigation)
+  schedule-tools.ts                # Tool schemas + server-side execution (create, remove, get)
+  schedule-transformer.ts          # AI schedule output → ScheduleItems conversion
+  schemas.ts                       # Zod schemas and TypeScript types
+  storage-utils.ts                 # localStorage helpers (save/load/clear/migrate)
+  utils.ts                         # Date formatting, week date calculation
+```
 
-### Option B: Self-hosted (Free, Technical)
+## AI Tool Calls
 
-1. Use Railway template: [railway.app/template/n8n-with-workers](https://railway.app/template/n8n-with-workers)
-2. Deploy with one click
-3. Set environment variables:
-   - Generate encryption key: `openssl rand -base64 24`
-   - Set `N8N_ENCRYPTION_KEY` to generated key
-4. Access deployed URL from Railway dashboard
+Fred has access to the following tools during chat, executed server-side:
 
-## 4. Import Workflow to n8n
+| Tool | Purpose |
+| ---- | ------- |
+| `get_schedule` | Retrieve the full current schedule (call before creating items to check conflicts) |
+| `create_schedule_items` | Add items to the calendar (requires title, date, start_time; optional end_time, type, location, is_recurring) |
+| `remove_schedule_items` | Remove items by title match |
+| `search_courses` | Semantic search over the WSU course catalog (top 5 results, score > 0.62) |
+| `complete_onboarding` | Trigger full schedule generation after the student agrees to a plan |
 
-1. Open your n8n instance
-2. Click "+" to create new workflow
-3. Click the three dots menu → "Import from file"
-4. Upload the `wsu-butch-bot.json` file
-5. Click "Save" after import
-6. Click "Execute workflow" to activate
-7. Copy the webhook URL from the webhook node (format: `https://your-n8n-instance.com/webhook/[webhook-id]`)
+## Quick Start
 
-## 5. Configure Google Gemini API
+See [SETUP.md](SETUP.md) for full local development instructions.
 
-1. In n8n workflow, click on "Google Gemini Chat Model" node
-2. Click "Create new credential"
-3. Get API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-4. Paste API key and save credential
+```bash
+git clone https://github.com/swanzeyb/v0-coug-scheduler.git
+cd v0-coug-scheduler
+pnpm install
+# Create .env.local with: NEXT_GEMINI_API_KEY=your_key_here
+pnpm dev
+```
 
-## 6. Update Environment Variable in Vercel
+## Deployment
 
-1. Go to your Vercel project dashboard
-2. Click "Settings" tab
-3. Click "Environment Variables" in sidebar
-4. Add new variable:
-   - Name: `NEXT_PUBLIC_N8N_WEBHOOK_URL`
-   - Value: Your webhook URL from step 4.7
-5. Redeploy project (click "Deployments" → three dots → "Redeploy")
+1. Fork the repository on GitHub
+2. Import into [Vercel](https://vercel.com) (Framework: Next.js, install/build with pnpm)
+3. Add the `NEXT_GEMINI_API_KEY` environment variable in Vercel project settings
+4. Deploy
 
-## 7. Test Deployment
+**Live URL**: https://v0-coug-scheduler-one.vercel.app
 
-1. Visit your Vercel deployment URL
-2. Send a test message to Butch
-3. Verify response comes from your n8n instance
+## Environment Variables
 
-## Required Accounts
-
-- GitHub (free)
-- Vercel (free tier available)
-- Google AI Studio (free tier available)
-- n8n Cloud ($24/month) OR Railway/similar (free tier available)
-
-## Monthly Costs
-
-- **Minimum**: $0 (free tiers only, self-hosted n8n)
-- **Recommended**: $24 (n8n Cloud for reliability)
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `NEXT_GEMINI_API_KEY` | Yes | Google Gemini API key ([get one here](https://aistudio.google.com/app/apikey)) |

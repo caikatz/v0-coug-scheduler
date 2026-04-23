@@ -98,18 +98,20 @@ export function removeFromStorage(key: string): boolean {
   }
 }
 
-const CHAT_MESSAGES_PREFIX = 'fred-chat-messages-'
+const CHAT_STORAGE_KEY = 'fred-chat-messages'
 
 export function clearAllStorage(): boolean {
   try {
     Object.values(STORAGE_KEYS).forEach((key) => {
       localStorage.removeItem(key)
     })
-    // Clear all AI chat message sessions (fred-chat-messages-0, fred-chat-messages-1, etc.)
+    // Clear the unified chat history
+    localStorage.removeItem(CHAT_STORAGE_KEY)
+    // Clear any legacy per-session chat keys (fred-chat-messages-0, fred-chat-messages-1, etc.)
     const keysToRemove: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key?.startsWith(CHAT_MESSAGES_PREFIX)) {
+      if (key?.startsWith(CHAT_STORAGE_KEY)) {
         keysToRemove.push(key)
       }
     }
