@@ -33,8 +33,8 @@ export const MONTHS = [
 
 export const WSU_SEMESTER = {
   current: {
-    start: '2026-01-12',
-    end: '2026-05-08'
+    start: '2026-8-24',
+    end: '2026-12-11'
   }
 }
 
