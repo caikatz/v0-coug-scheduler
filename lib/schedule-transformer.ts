@@ -256,7 +256,16 @@ export function applyScheduleChanges(
 
             if (newItem) {
               if (!updatedSchedule[dateKey]) updatedSchedule[dateKey] = []
-              updatedSchedule[dateKey].push(newItem)
+              const alreadyExists = updatedSchedule[dateKey].some((item) => {
+                const sameTitle = normalizeTitle(item.title) === normalizeTitle(newItem.title)
+                const sameTime = (item.time || '') === (newItem.time || '')
+                const sameDate = (item.dueDate || '') === (newItem.dueDate || '')
+                return sameTitle && sameTime && sameDate
+              })
+
+              if (!alreadyExists) {
+                updatedSchedule[dateKey].push(newItem)
+              }
               currentTaskId++
             }
           }

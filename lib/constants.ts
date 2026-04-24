@@ -96,17 +96,6 @@ export const SURVEY_QUESTIONS = [
     ],
     requiresFollowUp: [0, 1, 2], // Indices that require follow-up
   },
-  {
-    id: 6,
-    question: 'What type of reminders work best for you?',
-    type: 'multiple-choice' as const,
-    options: [
-      'Visual notifications',
-      'Sound alerts',
-      'Email summaries',
-      'No notifications',
-    ],
-  },
 ]
 
 export const SCHEDULING_AI = {

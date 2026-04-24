@@ -86,10 +86,8 @@ describe('Core Utilities', () => {
         '9:00-17:00', // productive hours
         '23:00-7:00', // sleep hours
         'Yes, but it can be improved', // sleep schedule working
-        'Daily schedule', // planner view
         'Break into study chunks <1hr', // task breakdown
         'Yes, but they can be improved', // study habits working
-        'Visual notifications', // reminder type
       ]
       const result = processUserPreferences(surveyAnswers)
 
@@ -102,7 +100,7 @@ describe('Core Utilities', () => {
         taskBreakdown: 'Break into study chunks <1hr',
         studyHabitsWorking: 'Yes, but they can be improved',
         studyHabitsNotes: undefined,
-        reminderType: 'Visual notifications',
+        reminderType: 'No notifications',
       })
     })
 
@@ -111,10 +109,8 @@ describe('Core Utilities', () => {
         '9:00-17:00',
         '23:00-7:00',
         'No, I need to develop a new sleep routine | Notes: I stay up too late',
-        'Weekly schedule',
         'Let AI decide',
         'Somewhat, but I need to adjust them for college | Notes: New environment',
-        'Sound alerts',
       ]
       const result = processUserPreferences(surveyAnswers)
 
@@ -326,7 +322,7 @@ describe('Core Utilities', () => {
 
   describe('Constants', () => {
     it('should have correct survey questions', () => {
-      expect(SURVEY_QUESTIONS).toHaveLength(7)
+      expect(SURVEY_QUESTIONS).toHaveLength(5)
       expect(SURVEY_QUESTIONS[0].question).toContain('productive study hours')
       expect(SURVEY_QUESTIONS[0].type).toBe('slider')
     })

@@ -77,7 +77,13 @@ export function sliderToHourString(value: number, questionId: number): string {
 export function processUserPreferences(
   surveyAnswers: string[]
 ): UserPreferences {
-  const parseAnswer = (answer: string): { value: string; notes?: string } => {
+  const parseAnswer = (
+    answer: string | undefined
+  ): { value: string; notes?: string } => {
+    if (!answer) {
+      return { value: '' }
+    }
+
     if (answer.includes(' | Notes: ')) {
       const [value, notes] = answer.split(' | Notes: ')
       return { value, notes }
@@ -97,7 +103,8 @@ export function processUserPreferences(
     taskBreakdown: surveyAnswers[3],
     studyHabitsWorking: studyHabits.value,
     studyHabitsNotes: studyHabits.notes,
-    reminderType: surveyAnswers[5],
+    // Keep reminderType for compatibility even after removing that survey question.
+    reminderType: surveyAnswers[5] ?? 'No notifications',
   }
 
   const validation = validateUserPreferences(preferences)

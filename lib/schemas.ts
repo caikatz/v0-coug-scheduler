@@ -156,7 +156,7 @@ export const ScheduleItemSchema = z.object({
   dueDate: z.string().optional(),
   priority: PrioritySchema,
   completed: z.boolean(),
-  source: z.enum(['ical']).optional(), // 'ical' when imported from ICS feed
+  source: z.enum(['ical', 'suggested']).optional(), // 'ical' for calendar imports, 'suggested' for auto free-time task suggestions
   icalUid: z.string().optional(), // UID from ICS for deduplication
   icalUrl: z.string().optional(), // ICS feed URL for per-feed removal
   repeatType: RepeatTypeSchema.optional(),

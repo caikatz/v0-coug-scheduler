@@ -9,7 +9,7 @@ import {
   useCalendarUrls,
 } from '@/lib/persistence-hooks'
 import { useBackgroundIcsSync } from '@/lib/use-background-ics-sync'
-import type { ScheduleItem, ScheduleItems } from '@/lib/schemas'
+import type { ScheduleItem, ScheduleItems, UserPreferences } from '@/lib/schemas'
 import SurveyView from '@/ui/views/SurveyView'
 import ChatView from '@/ui/views/ChatView'
 import TaskEditorView from '@/ui/views/TaskEditorView'
@@ -20,6 +20,7 @@ export default function ScheduleApp() {
     showSurvey,
     currentQuestionIndex,
     surveyAnswers,
+    userPreferences,
     updateSurveyAnswer,
     goBackInSurvey,
     completeSurvey,
@@ -29,7 +30,6 @@ export default function ScheduleApp() {
     scheduleItems,
     nextTaskId,
     updateScheduleItems,
-    incrementTaskId,
     setNextTaskId,
     setScheduleState,
   } = useScheduleState()
@@ -83,10 +83,11 @@ export default function ScheduleApp() {
         scheduleItems={scheduleItems}
         updateScheduleItems={updateScheduleItems}
         nextTaskId={nextTaskId}
-        incrementTaskId={incrementTaskId}
+        setNextTaskId={setNextTaskId}
         currentDate={currentDateObj}
-        onboardingCompleted={onboardingCompleted}
+        onboardingCompleted={onboardingCompleted ?? false}
         setOnboardingCompleted={setOnboardingCompleted}
+        userPreferences={userPreferences as UserPreferences | null}
         onNavigateToMain={() => setCurrentView('main')}
       />
     )

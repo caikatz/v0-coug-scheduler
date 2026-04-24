@@ -131,6 +131,13 @@ export default function MainView({
     }))
   }
 
+  function handleDeleteTask(taskId: number, dayKey: string) {
+    updateScheduleItems((items) => ({
+      ...items,
+      [dayKey]: (items[dayKey] || []).filter((task) => task.id !== taskId),
+    }))
+  }
+
   function handleReset() {
     // Clear all localStorage data
     clearAllStorage()
@@ -236,13 +243,13 @@ export default function MainView({
               className="flex flex-col items-center gap-3 p-4 rounded-2xl hover:bg-background/60 transition-all duration-300 group hover:scale-105 active:scale-95"
             >
               <div className="relative fred-avatar-section">
-                <div className="w-20 h-20 rounded-full bg-red-700 flex items-center justify-center shadow-xl group-hover:shadow-2xl transition-all duration-300 border-2 border-white/20 overflow-hidden">
+                <div className="w-20 h-20 rounded-full bg-slate-700 flex items-center justify-center shadow-xl group-hover:shadow-2xl transition-all duration-300 border-2 border-white/20 overflow-hidden">
                   <Image
                     src="/images/butch-cougar.png"
                     alt="Butch the Cougar"
-                    width={64}
-                    height={64}
-                    className="object-contain"
+                    width={80}
+                    height={80}
+                    className="w-full h-full object-cover object-center"
                   />
                 </div>
                 <div className="absolute -top-1 -right-1 text-xl">🐾</div>
@@ -531,6 +538,19 @@ export default function MainView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {item.source === 'suggested' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteTask(item.id, DAYS[selectedDay])
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
                     {getPriorityIcon(item.priority)}
                   </div>
                 </div>
@@ -590,6 +610,19 @@ export default function MainView({
                     {item.title}
                   </span>
                 </div>
+                {item.source === 'suggested' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteTask(item.id, DAYS[selectedDay])
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             ))}
 
