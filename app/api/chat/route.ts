@@ -471,38 +471,51 @@ Your goal: Be the supportive academic friend they can always count on for encour
 export async function POST(req: Request) {
   const requestStart = Date.now()
 
-  const raw = await req.text()
-  if (!raw.trim()) {
-    return NextResponse.json(
-      { error: 'Empty request body' },
-      { status: 400 }
-    )
-  }
-
-  let body: ChatRequestBody
   try {
-    body = JSON.parse(raw) as ChatRequestBody
-  } catch {
-    return NextResponse.json(
-      { error: 'Invalid JSON in request body' },
-      { status: 400 }
-    )
-  }
+    const raw = await req.text()
+    if (!raw.trim()) {
+      return NextResponse.json(
+        {
+          code: 'INVALID_REQUEST',
+          error: 'Please send a message to start the chat.',
+          retryable: false,
+        },
+        { status: 400 }
+      )
+    }
 
-  const {
-    messages,
-    userPreferences,
-    schedule,
-    onboardingCompleted,
-    nextTaskId,
-  } = body
+    let body: ChatRequestBody
+    try {
+      body = JSON.parse(raw) as ChatRequestBody
+    } catch {
+      return NextResponse.json(
+        {
+          code: 'INVALID_JSON',
+          error: 'Your request format is invalid. Please try again.',
+          retryable: false,
+        },
+        { status: 400 }
+      )
+    }
 
-  if (!Array.isArray(messages)) {
-    return NextResponse.json(
-      { error: 'Invalid body: messages must be an array' },
-      { status: 400 }
-    )
-  }
+    const {
+      messages,
+      userPreferences,
+      schedule,
+      onboardingCompleted,
+      nextTaskId,
+    } = body
+
+    if (!Array.isArray(messages)) {
+      return NextResponse.json(
+        {
+          code: 'INVALID_REQUEST',
+          error: 'Your request format is invalid. Please try again.',
+          retryable: false,
+        },
+        { status: 400 }
+      )
+    }
 
   const lastUserMsg = messages.filter((m) => m.role === 'user').at(-1)
   const lastUserText = lastUserMsg?.parts?.find(
@@ -609,9 +622,9 @@ export async function POST(req: Request) {
     '  - Use **date** for specific one-off events (e.g. "2026-03-20").',
     '  - Use **day** for recurring weekly events or when the user only specifies a day name.',
     '  - If the user says "tomorrow" or "next Friday", compute the actual date and use **date**.',
-    '- **start_time** (string): 24h format, e.g. "09:00"',
+    '- **start_time** (string): 12h format, e.g. "9:00 AM".',
     'Optional fields (have sensible defaults):',
-    '- **end_time** (string): 24h format, e.g. "10:20". Defaults to 1 hour after start_time.',
+    '- **end_time** (string): 12h format, e.g. "10:20 PM". Defaults to 1 hour after start_time.',
     '- **type** (string): One of "class", "study", "work", "athletic", "extracurricular", "personal". Defaults to "personal".',
     '- **is_recurring** (boolean): true if it repeats weekly until semester end. Defaults to false. Requires **day** (not date) when true.',
     '- **location** (string): Optional location.',
@@ -817,7 +830,7 @@ export async function POST(req: Request) {
     console.log('[Chat API] Input messages to Gemini:', coreMessages.length)
   }
 
-  const result = streamText({
+    const result = streamText({
     model: withTracing(google(modelId), phClient, {
       posthogProperties: {
         conversationType: onboardingCompleted
@@ -913,5 +926,16 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse()
+    return result.toUIMessageStreamResponse()
+  } catch (error) {
+    console.error('[Chat API] Unhandled error:', error)
+    return NextResponse.json(
+      {
+        code: 'CHAT_UNAVAILABLE',
+        error: 'Chat is temporarily unavailable. Please try again in a moment.',
+        retryable: true,
+      },
+      { status: 500 }
+    )
+  }
 }

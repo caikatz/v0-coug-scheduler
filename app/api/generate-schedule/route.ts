@@ -47,6 +47,18 @@ export async function POST(req: Request) {
     const { messages, existingSchedule }: GenerateScheduleRequest = await req.json()
     console.timeEnd('request-parsing')
 
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return Response.json(
+        {
+          success: false,
+          code: 'INVALID_REQUEST',
+          error: 'Please provide at least one chat message to generate a schedule.',
+          retryable: false,
+        },
+        { status: 400 }
+      )
+    }
+
     console.log('📝 Number of messages received:', messages.length)
 
     // Check cache first
@@ -94,7 +106,7 @@ DO NOT INCLUDE:
 - Any activities not explicitly mentioned in the conversation
 
 FORMATTING RULES:
-1. Use 24-hour time format (e.g., "09:00", "15:30")
+1. Use 12-hour time format (e.g., "9:00 AM", "3:30 PM")
 2. Map day names exactly as: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
 3. Calculate accurate totals for the schedule_summary based ONLY on the blocks you create
 4. Ensure all time blocks don't overlap within a day
@@ -161,12 +173,35 @@ Generate a weekly schedule that includes ONLY what was explicitly discussed. Be 
     console.timeEnd('schedule-generation-total')
     console.error('❌ Schedule generation error at:', new Date().toISOString())
     console.error('Schedule generation error:', error)
+
+    const errorMessage =
+      error instanceof Error ? error.message.toLowerCase() : ''
+    const isRateLimited =
+      errorMessage.includes('rate') || errorMessage.includes('429')
+    const isAuthIssue =
+      errorMessage.includes('api key') ||
+      errorMessage.includes('unauthorized') ||
+      errorMessage.includes('permission')
+
+    const status = isRateLimited ? 429 : isAuthIssue ? 503 : 500
+    const userError = isRateLimited
+      ? 'Too many requests right now. Please try again in a minute.'
+      : isAuthIssue
+        ? 'Scheduling service is temporarily unavailable. Please try again shortly.'
+        : 'We could not generate your schedule right now. Please try again.'
+
     return Response.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        code: isRateLimited
+          ? 'RATE_LIMITED'
+          : isAuthIssue
+            ? 'SERVICE_UNAVAILABLE'
+            : 'SCHEDULE_GENERATION_FAILED',
+        error: userError,
+        retryable: true,
       },
-      { status: 500 }
+      { status }
     )
   }
 }
